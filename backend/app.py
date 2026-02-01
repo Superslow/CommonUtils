@@ -1341,8 +1341,8 @@ def run_task_once(task_id, scheduled_time=None):
             pass
 
 
-def _run_task_at_scheduled_time(task_id, scheduled_time):
-    """在计划时间到达时执行任务，实现毫秒级准时"""
+def _run_task_at_scheduled_time(task_id, scheduled_time, schedule_key):
+    """在计划时间到达时执行任务，实现毫秒级准时。schedule_key 为按秒取整的 timestamp，用于去重。"""
     delay = (scheduled_time - datetime.now()).total_seconds()
     if delay > 0:
         time.sleep(delay)
@@ -1350,7 +1350,7 @@ def _run_task_at_scheduled_time(task_id, scheduled_time):
         run_task_once(task_id, scheduled_time=scheduled_time)
     finally:
         with _scheduled_run_lock:
-            if _scheduled_run_at.get(task_id) == scheduled_time.timestamp():
+            if _scheduled_run_at.get(task_id) == schedule_key:
                 _scheduled_run_at.pop(task_id, None)
 
 
@@ -1376,14 +1376,14 @@ def scheduler_loop():
                     secs = (next_run - now).total_seconds()
                     if secs <= 0 or secs > 65:
                         continue
+                    schedule_key = int(round(next_run.timestamp(), 0))
                     with _scheduled_run_lock:
-                        key = next_run.timestamp()
-                        if _scheduled_run_at.get(t['id']) == key:
+                        if _scheduled_run_at.get(t['id']) == schedule_key:
                             continue
-                        _scheduled_run_at[t['id']] = key
+                        _scheduled_run_at[t['id']] = schedule_key
                     threading.Thread(
                         target=_run_task_at_scheduled_time,
-                        args=(t['id'], next_run),
+                        args=(t['id'], next_run, schedule_key),
                         daemon=True
                     ).start()
                 except Exception:
