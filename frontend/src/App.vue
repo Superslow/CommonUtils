@@ -21,7 +21,7 @@
             </span>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item command="change-password">修改密码</el-dropdown-item>
+                <el-dropdown-item command="user-info">修改用户信息</el-dropdown-item>
                 <el-dropdown-item v-if="authUser.is_admin" command="user-management">用户管理</el-dropdown-item>
                 <el-dropdown-item v-if="authUser.is_admin" command="menu-management">菜单管理</el-dropdown-item>
                 <el-dropdown-item v-if="authUser.is_admin" command="announcement">发布公告</el-dropdown-item>
@@ -33,22 +33,25 @@
         <el-button v-else type="primary" link @click="goLogin">登录</el-button>
       </div>
 
-    <!-- 修改密码弹窗 -->
-    <el-dialog v-model="passwordDialogVisible" title="修改密码" width="400px" :close-on-click-modal="false" @close="resetPasswordForm">
-      <el-form :model="passwordForm" label-width="90px">
-        <el-form-item label="原密码" required>
-          <el-input v-model="passwordForm.old_password" type="password" placeholder="原密码" show-password />
+    <!-- 修改用户信息弹窗 -->
+    <el-dialog v-model="userInfoDialogVisible" title="修改用户信息" width="420px" :close-on-click-modal="false" @close="resetUserInfoForm">
+      <el-form :model="userInfoForm" label-width="100px">
+        <el-form-item label="用户名" required>
+          <el-input v-model="userInfoForm.username" placeholder="至少 2 个字符" maxlength="64" show-word-limit />
         </el-form-item>
-        <el-form-item label="新密码" required>
-          <el-input v-model="passwordForm.new_password" type="password" placeholder="至少 6 位" show-password />
+        <el-form-item label="当前密码" required>
+          <el-input v-model="userInfoForm.password" type="password" placeholder="用于验证身份" show-password />
         </el-form-item>
-        <el-form-item label="确认新密码" required>
-          <el-input v-model="passwordForm.confirm_password" type="password" placeholder="再次输入新密码" show-password />
+        <el-form-item label="新密码">
+          <el-input v-model="userInfoForm.new_password" type="password" placeholder="留空则不修改密码，至少 6 位" show-password />
+        </el-form-item>
+        <el-form-item label="确认新密码">
+          <el-input v-model="userInfoForm.confirm_password" type="password" placeholder="与新密码一致" show-password />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="passwordDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="submitChangePassword">确定</el-button>
+        <el-button @click="userInfoDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitUserInfo">确定</el-button>
       </template>
     </el-dialog>
 
@@ -89,8 +92,8 @@ const route = useRoute()
 const router = useRouter()
 const activeMenu = computed(() => route.path || '/')
 const authUser = ref(null)
-const passwordDialogVisible = ref(false)
-const passwordForm = ref({ old_password: '', new_password: '', confirm_password: '' })
+const userInfoDialogVisible = ref(false)
+const userInfoForm = ref({ username: '', password: '', new_password: '', confirm_password: '' })
 const menuItems = ref([])
 const announcement = ref(null)
 const announcementDialogVisible = ref(false)
@@ -196,30 +199,41 @@ function submitAnnouncement() {
     .catch(e => ElMessage.error(e.response?.data?.error || e.message || '发布失败'))
 }
 
-function resetPasswordForm() {
-  passwordForm.value = { old_password: '', new_password: '', confirm_password: '' }
+function resetUserInfoForm() {
+  userInfoForm.value = { username: '', password: '', new_password: '', confirm_password: '' }
 }
 
-function submitChangePassword() {
-  const { old_password, new_password, confirm_password } = passwordForm.value
-  if (!old_password || !new_password) {
-    ElMessage.warning('请填写原密码和新密码')
+function submitUserInfo() {
+  const { username, password, new_password, confirm_password } = userInfoForm.value
+  const un = (username || '').trim()
+  if (!password) {
+    ElMessage.warning('请填写当前密码以验证身份')
     return
   }
-  if (new_password.length < 6) {
+  if (!un && !new_password) {
+    ElMessage.warning('请填写新用户名和/或新密码')
+    return
+  }
+  if (un && un.length < 2) {
+    ElMessage.warning('用户名至少 2 个字符')
+    return
+  }
+  if (new_password && new_password.length < 6) {
     ElMessage.warning('新密码至少 6 位')
     return
   }
-  if (new_password !== confirm_password) {
+  if (new_password && new_password !== confirm_password) {
     ElMessage.warning('两次输入的新密码不一致')
     return
   }
-  api.post('/auth/change-password', { old_password, new_password })
+  const body = { password, username: un || undefined, new_password: new_password || undefined }
+  api.put('/auth/me', body)
     .then(r => {
       if (r.success) {
-        ElMessage.success('密码已修改')
-        passwordDialogVisible.value = false
-        resetPasswordForm()
+        ElMessage.success('用户信息已更新')
+        userInfoDialogVisible.value = false
+        resetUserInfoForm()
+        loadAuthUser()
       } else {
         ElMessage.error(r.error || '修改失败')
       }

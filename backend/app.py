@@ -180,29 +180,47 @@ def auth_me():
     return jsonify({'success': True, 'data': user})
 
 
-@app.route('/api/auth/change-password', methods=['POST'])
+@app.route('/api/auth/me', methods=['PUT'])
 @require_login
-def change_password():
-    """当前用户修改自己的密码"""
+def update_profile():
+    """当前用户修改自己的用户名和/或密码。请求体：password（当前密码，必填）、username（可选）、new_password（可选，至少6位）。"""
     user = get_current_user()
     data = request.get_json() or {}
-    old_password = data.get('old_password') or ''
+    password = (data.get('password') or '').strip()
+    username = (data.get('username') or '').strip()
     new_password = data.get('new_password') or ''
-    if not old_password or not new_password:
-        return jsonify({'error': '请填写原密码和新密码'}), 400
-    if len(new_password) < 6:
+    if not password:
+        return jsonify({'error': '请填写当前密码以验证身份'}), 400
+    if not username and not new_password:
+        return jsonify({'error': '请填写新用户名和/或新密码'}), 400
+    if username and len(username) < 2:
+        return jsonify({'error': '用户名至少 2 个字符'}), 400
+    if new_password and len(new_password) < 6:
         return jsonify({'error': '新密码至少 6 位'}), 400
     try:
         with get_db() as conn:
             with conn.cursor() as cur:
-                cur.execute('SELECT password_hash FROM users WHERE id = %s', (user['id'],))
+                cur.execute('SELECT id, username, password_hash FROM users WHERE id = %s', (user['id'],))
                 row = cur.fetchone()
-            if not row or not check_password_hash(row['password_hash'], old_password):
-                return jsonify({'error': '原密码错误'}), 400
-            pw_hash = generate_password_hash(new_password, method='pbkdf2:sha256')
-            with conn.cursor() as cur:
-                cur.execute('UPDATE users SET password_hash = %s WHERE id = %s', (pw_hash, user['id']))
-        conn.commit()
+            if not row or not check_password_hash(row['password_hash'], password):
+                return jsonify({'error': '当前密码错误'}), 400
+            updates = []
+            params = []
+            if username and username != row['username']:
+                with conn.cursor() as cur:
+                    cur.execute('SELECT id FROM users WHERE username = %s AND id != %s', (username, user['id']))
+                    if cur.fetchone():
+                        return jsonify({'error': '用户名已被占用'}), 400
+                updates.append('username = %s')
+                params.append(username)
+            if new_password:
+                pw_hash = generate_password_hash(new_password, method='pbkdf2:sha256')
+                updates.append('password_hash = %s')
+                params.append(pw_hash)
+            if updates:
+                params.append(user['id'])
+                with conn.cursor() as cur:
+                    cur.execute('UPDATE users SET ' + ', '.join(updates) + ' WHERE id = %s', params)
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
