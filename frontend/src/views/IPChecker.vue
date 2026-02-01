@@ -5,12 +5,6 @@
         <span>IP网段判断</span>
       </template>
 
-      <div v-if="currentIp !== null" class="current-ip">
-        <span class="label">当前访问IP（后端识别）：</span>
-        <el-tag type="info">{{ currentIp || '—' }}</el-tag>
-        <span class="hint">即本站在权限判断时看到的您的出口IP</span>
-      </div>
-
       <el-form :model="form" label-width="120px">
         <el-form-item label="IP地址">
           <el-input v-model="form.ip" placeholder="输入IP地址，如：192.168.1.1" @keyup.enter="check">
@@ -142,23 +136,6 @@ const check = async () => {
 .ip-page {
   max-width: 1400px;
   margin: 0 auto;
-}
-
-.current-ip {
-  margin-bottom: 20px;
-  padding: 10px 0;
-  font-size: 14px;
-  white-space: nowrap;
-}
-
-.current-ip .label {
-  margin-right: 8px;
-}
-
-.current-ip .hint {
-  margin-left: 8px;
-  color: #909399;
-  font-size: 12px;
 }
 
 .result {
