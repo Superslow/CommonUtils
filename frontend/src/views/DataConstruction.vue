@@ -2,11 +2,13 @@
   <div class="data-construction-page">
     <el-tabs v-model="activeTab">
       <el-tab-pane label="Agent 管理" name="agents">
-        <el-button type="primary" @click="showAgentDialog()">新增 Agent</el-button>
-        <span class="status-hint">状态每 30 秒自动更新</span>
-        <el-table :data="agents" border style="width: 100%; margin-top: 16px;">
+        <div class="toolbar-row">
+          <el-button type="primary" @click="showAgentDialog()">新增 Agent</el-button>
+          <span class="status-hint">状态每 30 秒自动更新</span>
+        </div>
+        <el-table :data="agents" border class="single-line-table" style="width: 100%; margin-top: 16px;">
           <el-table-column prop="name" label="名称" width="120" />
-          <el-table-column prop="url" label="URL" min-width="200" />
+          <el-table-column prop="url" label="URL" min-width="200" show-overflow-tooltip />
           <el-table-column prop="status" label="状态" width="100">
             <template #default="{ row }">
               <el-tag :type="row.status === 'online' ? 'success' : row.status === 'offline' ? 'danger' : 'info'" size="small">
@@ -14,33 +16,39 @@
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="180" fixed="right">
+          <el-table-column label="操作" width="180" fixed="right" align="left">
             <template #default="{ row }">
-              <el-button link type="primary" @click="checkAgentRow(row)">校验</el-button>
-              <el-button v-if="row.is_owner" link type="primary" @click="showAgentDialog(row)">编辑</el-button>
-              <el-button v-if="row.is_owner" link type="danger" @click="deleteAgent(row)">删除</el-button>
+              <span class="op-cell">
+                <el-button link type="primary" @click="checkAgentRow(row)">校验</el-button>
+                <el-button v-if="row.is_owner" link type="primary" @click="showAgentDialog(row)">编辑</el-button>
+                <el-button v-if="row.is_owner" link type="danger" @click="deleteAgent(row)">删除</el-button>
+              </span>
             </template>
           </el-table-column>
         </el-table>
       </el-tab-pane>
 
       <el-tab-pane label="数据构造任务" name="tasks">
-        <el-button type="primary" @click="showTaskDialog()">新增任务</el-button>
-        <el-table :data="tasks" border style="width: 100%; margin-top: 16px;">
-          <el-table-column prop="name" label="任务名" width="140" />
+        <div class="toolbar-row">
+          <el-button type="primary" @click="showTaskDialog()">新增任务</el-button>
+        </div>
+        <el-table :data="tasks" border class="single-line-table" style="width: 100%; margin-top: 16px;">
+          <el-table-column prop="name" label="任务名" width="140" show-overflow-tooltip />
           <el-table-column prop="task_type" label="类型" width="100" />
-          <el-table-column prop="cron_expr" label="Cron" width="120" />
+          <el-table-column prop="cron_expr" label="Cron" width="120" show-overflow-tooltip />
           <el-table-column prop="batch_size" label="每批条数" width="90" />
-          <el-table-column prop="agent_name" label="Agent" width="120" />
+          <el-table-column prop="agent_name" label="Agent" width="120" show-overflow-tooltip />
           <el-table-column v-if="currentUser?.is_admin" prop="creator_username" label="创建者" width="100" />
           <el-table-column prop="status" label="状态" width="80" />
-          <el-table-column label="操作" width="340" min-width="340" fixed="right">
+          <el-table-column label="操作" width="340" min-width="340" fixed="right" align="left">
             <template #default="{ row }">
-              <el-button v-if="row.is_owner" link type="success" @click="startTask(row)" :disabled="row.status === 'running'">启动</el-button>
-              <el-button v-if="row.is_owner" link type="warning" @click="stopTask(row)" :disabled="row.status !== 'running'">停止</el-button>
-              <el-button link type="primary" @click="showExecutions(row)">执行记录</el-button>
-              <el-button v-if="row.is_owner" link type="primary" @click="showTaskDialog(row)">编辑</el-button>
-              <el-button v-if="row.is_owner" link type="danger" @click="deleteTask(row)">删除</el-button>
+              <span class="op-cell">
+                <el-button v-if="row.is_owner" link type="success" @click="startTask(row)" :disabled="row.status === 'running'">启动</el-button>
+                <el-button v-if="row.is_owner" link type="warning" @click="stopTask(row)" :disabled="row.status !== 'running'">停止</el-button>
+                <el-button link type="primary" @click="showExecutions(row)">执行记录</el-button>
+                <el-button v-if="row.is_owner" link type="primary" @click="showTaskDialog(row)">编辑</el-button>
+                <el-button v-if="row.is_owner" link type="danger" @click="deleteTask(row)">删除</el-button>
+              </span>
             </template>
           </el-table-column>
         </el-table>
@@ -528,7 +536,27 @@ function loadExecutions() {
   line-height: 1.5;
 }
 
+.toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
 .executions-toolbar {
   margin-bottom: 12px;
+}
+
+/* 1920 下表格单行展开，操作列不换行 */
+.single-line-table .op-cell {
+  white-space: nowrap;
+}
+.single-line-table :deep(.el-table__cell) {
+  white-space: nowrap;
+}
+.single-line-table :deep(.el-table__cell .el-text) {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 </style>

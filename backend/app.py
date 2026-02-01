@@ -248,7 +248,6 @@ def update_user(uid):
                 if not cur.fetchone():
                     return jsonify({'error': '用户不存在'}), 404
                 cur.execute('UPDATE users SET is_admin = %s WHERE id = %s', (1 if is_admin else 0, uid))
-        conn.commit()
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500

@@ -148,6 +148,7 @@ const check = async () => {
   margin-bottom: 20px;
   padding: 10px 0;
   font-size: 14px;
+  white-space: nowrap;
 }
 
 .current-ip .label {

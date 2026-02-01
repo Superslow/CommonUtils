@@ -15,7 +15,7 @@
           <el-dropdown trigger="click" @command="handleUserCommand">
             <span class="header-user-dropdown">
               {{ authUser.username }}
-              <el-tag v-if="authUser.is_admin" type="danger" size="small">管理员</el-tag>
+              <el-tag v-if="authUser.is_admin" class="admin-vip-tag" size="small">VIP 管理员</el-tag>
               <el-icon class="el-icon--right"><arrow-down /></el-icon>
             </span>
             <template #dropdown>
@@ -255,13 +255,17 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: nowrap;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   padding: 0 20px;
+  min-width: 0;
 }
 
 .app-header .title {
   font-size: 24px;
   font-weight: 500;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .header-right {
@@ -270,9 +274,19 @@ body {
   gap: 10px;
 }
 
-.header-right .el-button,
-.header-right .el-tag {
+.header-right .el-button {
   color: rgba(255, 255, 255, 0.95);
+}
+
+/* 金色 VIP 管理员标识 */
+.admin-vip-tag {
+  background: linear-gradient(135deg, #d4af37 0%, #f4e4a6 50%, #c9a227 100%) !important;
+  border: 1px solid rgba(255, 215, 0, 0.6) !important;
+  color: #2c1810 !important;
+  font-weight: 600;
+}
+.header-right .admin-vip-tag {
+  color: #2c1810 !important;
 }
 
 .header-user-dropdown {
@@ -291,6 +305,8 @@ body {
   border-bottom: 1px solid #e6e6e6;
   padding: 0 24px;
   flex-shrink: 0;
+  flex-wrap: nowrap;
+  overflow-x: auto;
 }
 
 .app-menu .el-menu-item {
