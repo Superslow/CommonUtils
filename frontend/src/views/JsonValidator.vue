@@ -1,17 +1,18 @@
 <template>
   <div class="json-page">
-    <el-card>
+    <el-card class="json-card">
       <template #header>
         <span>JSON格式化校验</span>
       </template>
 
-      <el-form label-width="80px">
+      <el-form label-width="90px" class="json-form">
         <el-form-item label="JSON内容">
           <el-input
             v-model="jsonText"
             type="textarea"
             :rows="14"
             placeholder="输入JSON字符串"
+            class="json-textarea"
           />
         </el-form-item>
         <el-form-item>
@@ -22,22 +23,23 @@
 
       <el-divider />
 
-      <div v-if="result">
+      <div v-if="result" class="result-section">
         <el-alert
           :type="result.valid ? 'success' : 'error'"
           :title="result.valid ? 'JSON格式正确' : 'JSON格式错误'"
           :description="result.error"
           :closable="false"
-          style="margin-bottom: 20px"
+          class="result-alert"
         />
 
-        <div v-if="result.valid">
-          <h3>格式化结果：</h3>
+        <div v-if="result.valid" class="formatted-wrap">
+          <h3 class="result-title">格式化结果：</h3>
           <el-input
             v-model="result.formatted"
             type="textarea"
             :rows="20"
             readonly
+            class="json-textarea"
           />
         </div>
       </div>
@@ -85,7 +87,42 @@ const clear = () => {
 
 <style scoped>
 .json-page {
-  max-width: 1400px;
+  max-width: 1600px;
   margin: 0 auto;
+}
+
+.json-card {
+  padding: 0;
+}
+
+.json-card :deep(.el-card__body) {
+  padding: 28px 40px 32px;
+}
+
+.json-form {
+  margin-bottom: 8px;
+}
+
+.json-textarea :deep(.el-textarea__inner) {
+  padding: 14px 18px;
+  font-family: inherit;
+}
+
+.result-section {
+  margin-top: 8px;
+}
+
+.result-alert {
+  margin-bottom: 24px;
+}
+
+.result-title {
+  margin-bottom: 14px;
+  font-size: 15px;
+  color: #303133;
+}
+
+.formatted-wrap .json-textarea {
+  margin-top: 4px;
 }
 </style>
