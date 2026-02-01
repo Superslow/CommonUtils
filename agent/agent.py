@@ -27,6 +27,48 @@ def generate_machine_token():
 
 AGENT_TOKEN = generate_machine_token()
 
+# Kafka 证书缓存目录（下发任务时写入，按内容哈希去重，已有则校验后复用）
+def _cert_cache_dir():
+    base = os.environ.get('AGENT_CERT_CACHE_DIR')
+    if base:
+        return os.path.join(base, 'certs')
+    if os.name == 'nt':
+        base = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
+    else:
+        base = os.path.expanduser('~/.local/share')
+    return os.path.join(base, 'commonutils_agent', 'certs')
+
+
+def get_cached_cert_path(pem_content):
+    """
+    将 PEM 证书内容缓存到本地，按内容 SHA256 命名；已有则校验内容一致后复用路径，避免重复缓存。
+    返回本地 .pem 文件路径。
+    """
+    if not pem_content or not isinstance(pem_content, str):
+        return None
+    pem_content = pem_content.strip()
+    if '-----BEGIN' not in pem_content:
+        return None
+    content_bytes = pem_content.encode('utf-8')
+    h = hashlib.sha256(content_bytes).hexdigest()
+    cache_dir = _cert_cache_dir()
+    os.makedirs(cache_dir, exist_ok=True)
+    path = os.path.join(cache_dir, f'{h}.pem')
+    if os.path.isfile(path):
+        try:
+            with open(path, 'rb') as f:
+                existing = f.read()
+            if hashlib.sha256(existing).hexdigest() == h:
+                return path
+        except Exception:
+            pass
+    try:
+        with open(path, 'wb') as f:
+            f.write(content_bytes)
+    except Exception:
+        return None
+    return path
+
 
 def require_token(f):
     @wraps(f)
@@ -99,8 +141,22 @@ def execute_kafka(task_data, batch_no):
         producer_config['sasl_plain_username'] = config['username']
         producer_config['sasl_plain_password'] = config['password']
 
+    ssl_cafile_path = None
     if security_protocol in ('SSL', 'SASL_SSL') and config.get('ssl_cafile'):
-        producer_config['ssl_cafile'] = config['ssl_cafile']
+        ssl_cafile = config['ssl_cafile']
+        if isinstance(ssl_cafile, str) and '-----BEGIN' in ssl_cafile:
+            ssl_cafile_path = get_cached_cert_path(ssl_cafile)
+            if ssl_cafile_path:
+                producer_config['ssl_cafile'] = ssl_cafile_path
+            else:
+                fd, ssl_cafile_path = tempfile.mkstemp(suffix='.pem')
+                try:
+                    os.write(fd, ssl_cafile.encode('utf-8'))
+                finally:
+                    os.close(fd)
+                producer_config['ssl_cafile'] = ssl_cafile_path
+        else:
+            producer_config['ssl_cafile'] = ssl_cafile
         producer_config['ssl_check_hostname'] = False
 
     try:
@@ -118,7 +174,7 @@ def execute_kafka(task_data, batch_no):
         producer.flush()
     finally:
         producer.close()
-        if ssl_cafile_path and os.path.isfile(ssl_cafile_path):
+        if ssl_cafile_path and os.path.isfile(ssl_cafile_path) and _cert_cache_dir() not in ssl_cafile_path:
             try:
                 os.remove(ssl_cafile_path)
             except Exception:

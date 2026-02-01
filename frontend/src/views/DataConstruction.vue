@@ -262,9 +262,9 @@
 
     <!-- 执行记录弹窗 -->
     <el-dialog v-model="executionsDialogVisible" title="执行记录" width="900px" :close-on-click-modal="false" @open="currentTaskId && loadExecutions()">
-      <div class="executions-toolbar">
-        <el-button type="primary" @click="loadExecutions" :disabled="!currentTaskId">刷新</el-button>
-        <el-button type="warning" @click="clearExecutions" :disabled="!currentTaskId">清空</el-button>
+      <div class="toolbar-row executions-toolbar">
+        <el-button @click="loadExecutions" :disabled="!currentTaskId">刷新</el-button>
+        <el-button type="danger" @click="clearExecutions" :disabled="!currentTaskId">清空</el-button>
       </div>
       <el-table :data="executions" border max-height="400">
         <el-table-column prop="batch_no" label="批次" width="80" />
@@ -586,8 +586,9 @@ function loadExecutions() {
 
 function clearExecutions() {
   if (!currentTaskId.value) return
-  ElMessageBox.confirm('确定清空该任务的全部历史执行记录吗？清空后可减轻数据库压力。', '清空执行记录', {
-    confirmButtonText: '确定',
+  ElMessageBox.confirm('确定清空该任务的全部历史执行记录吗？此操作不可恢复，请谨慎操作。清空后可减轻数据库压力。', '清空执行记录', {
+    type: 'warning',
+    confirmButtonText: '确定清空',
     cancelButtonText: '取消',
     type: 'warning'
   }).then(() => {
