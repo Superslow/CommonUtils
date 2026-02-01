@@ -56,7 +56,7 @@
     </el-tabs>
 
     <!-- Agent 弹窗 -->
-    <el-dialog v-model="agentDialogVisible" :title="editingAgent ? '编辑 Agent' : '新增 Agent'" width="560px">
+    <el-dialog v-model="agentDialogVisible" :title="editingAgent ? '编辑 Agent' : '新增 Agent'" width="560px" :close-on-click-modal="false">
       <el-form :model="agentForm" label-width="100px">
         <el-form-item label="名称" required>
           <el-input v-model="agentForm.name" placeholder="Agent 名称" />
@@ -79,7 +79,7 @@
     </el-dialog>
 
     <!-- 校验 Agent 弹窗 -->
-    <el-dialog v-model="checkDialogVisible" title="校验 Agent" width="400px">
+    <el-dialog v-model="checkDialogVisible" title="校验 Agent" width="400px" :close-on-click-modal="false">
       <el-form label-width="80px">
         <el-form-item label="URL">
           <el-input v-model="checkForm.url" placeholder="http://host:5001" />
@@ -96,7 +96,7 @@
     </el-dialog>
 
     <!-- 任务弹窗 -->
-    <el-dialog v-model="taskDialogVisible" :title="editingTask ? '编辑任务' : '新增任务'" width="900px">
+    <el-dialog v-model="taskDialogVisible" :title="editingTask ? '编辑任务' : '新增任务'" width="900px" :close-on-click-modal="false">
       <el-form :model="taskForm" label-width="120px">
         <el-form-item label="任务名称" required>
           <el-input v-model="taskForm.name" placeholder="任务名称" />
@@ -214,7 +214,7 @@
     </el-dialog>
 
     <!-- 执行记录弹窗 -->
-    <el-dialog v-model="executionsDialogVisible" title="执行记录" width="900px" @open="currentTaskId && loadExecutions()">
+    <el-dialog v-model="executionsDialogVisible" title="执行记录" width="900px" :close-on-click-modal="false" @open="currentTaskId && loadExecutions()">
       <div class="executions-toolbar">
         <el-button type="primary" link @click="loadExecutions" :disabled="!currentTaskId">刷新</el-button>
       </div>
