@@ -99,6 +99,7 @@ def execute_kafka(task_data, batch_no):
 
     if security_protocol in ('SSL', 'SASL_SSL') and config.get('ssl_cafile'):
         producer_config['ssl_cafile'] = config['ssl_cafile']
+        producer_config['ssl_check_hostname'] = False
 
     try:
         producer = KafkaProducer(**producer_config)
