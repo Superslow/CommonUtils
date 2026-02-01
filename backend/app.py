@@ -30,7 +30,16 @@ _task_stop_flags = {}
 
 
 def get_client_ip():
-    """获取客户端IP（用于权限校验：仅创建者本人或管理员可修改/删除）"""
+    """获取客户端真实 IP（用于权限校验：仅创建者本人或管理员可修改/删除）。
+    若配置了 CLIENT_IP_HEADER（如 X-Forwarded-For），优先从该头取 IP，否则反向代理下会误判为同一 IP。"""
+    try:
+        from config import CLIENT_IP_HEADER
+        if CLIENT_IP_HEADER:
+            raw = request.headers.get(CLIENT_IP_HEADER) or ''
+            if raw:
+                return raw.split(',')[0].strip() or request.remote_addr or '127.0.0.1'
+    except Exception:
+        pass
     raw = request.headers.get('X-Forwarded-For') or request.headers.get('X-Real-IP') or request.remote_addr or ''
     return raw.split(',')[0].strip() or '127.0.0.1'
 
