@@ -98,6 +98,19 @@ const menuItems = ref([])
 const announcement = ref(null)
 const announcementDialogVisible = ref(false)
 const announcementForm = ref('')
+const announcementWrapRef = ref(null)
+const marqueeWrapRef = ref(null)
+const needMarquee = ref(false)
+
+function checkMarquee() {
+  const wrap = marqueeWrapRef.value
+  const inner = wrap?.querySelector('.announcement-inner')
+  if (!wrap || !inner || !announcement.value?.content) {
+    needMarquee.value = false
+    return
+  }
+  needMarquee.value = inner.scrollWidth > wrap.clientWidth
+}
 
 function getToken() {
   try {
@@ -131,8 +144,12 @@ function handleUserCommand(cmd) {
     router.push('/')
     return
   }
-  if (cmd === 'change-password') {
-    passwordDialogVisible.value = true
+  if (cmd === 'user-info') {
+    userInfoForm.value.username = authUser.value?.username || ''
+    userInfoForm.value.password = ''
+    userInfoForm.value.new_password = ''
+    userInfoForm.value.confirm_password = ''
+    userInfoDialogVisible.value = true
     return
   }
   if (cmd === 'user-management') {
@@ -331,7 +348,7 @@ body {
   font-size: 14px;
 }
 
-/* 公告：标题与账号之间，喇叭图标 + 长文滚动 */
+/* 公告：标题与账号之间，喇叭图标 + 长文滚动，略偏右 */
 .announcement-wrap {
   flex: 1;
   min-width: 0;
@@ -339,7 +356,7 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 0 20px;
+  margin: 0 20px 0 48px;
   color: rgba(255, 255, 255, 0.95);
   font-size: 14px;
 }
