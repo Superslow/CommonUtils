@@ -56,43 +56,120 @@ CommonUtils/
 
 ## 快速开始
 
-### 后端启动
+### 1. 数据库初始化（MySQL）
 
-1. 进入后端目录：
+使用数据构造功能前，需要先准备好 MySQL。
+
+1. **创建数据库**：
 ```bash
-cd backend
+mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS common_utils DEFAULT CHARACTER SET utf8mb4;"
 ```
 
-2. 安装Python依赖：
+2. **配置连接**（任选其一）：
+   - **环境变量**（推荐）：
+     ```bash
+     export MYSQL_HOST=localhost
+     export MYSQL_PORT=3306
+     export MYSQL_USER=root
+     export MYSQL_PASSWORD=your_password
+     export MYSQL_DATABASE=common_utils
+     ```
+   - **直接改配置**：编辑 `backend/config.py`，修改 `MYSQL_HOST`、`MYSQL_USER`、`MYSQL_PASSWORD`、`MYSQL_DATABASE` 等。
+
+3. **表结构**：后端首次启动时会自动执行 `backend/database/schema.sql` 建表（在 `python app.py` 里会调用 `init_db()`），无需手动导入。若已存在表则跳过。
+
+### 2. 后端启动
+
+1. 进入后端目录并安装依赖：
 ```bash
+cd backend
 pip install -r requirements.txt
 ```
 
-3. 启动Flask服务：
+2. （可选）配置监听地址与端口：
+   - **环境变量**：
+     ```bash
+     export FLASK_HOST=0.0.0.0    # 非本机访问时设为 0.0.0.0
+     export FLASK_PORT=5000
+     export FLASK_DEBUG=true
+     ```
+   - 或在 `backend/config.py` 中修改 `HOST`、`PORT`、`DEBUG`。
+
+3. 启动服务：
 ```bash
 python app.py
 ```
 
-后端服务将在 `http://0.0.0.0:5000` 启动（支持非 localhost 访问）。需先创建 MySQL 数据库 `common_utils` 并配置 `backend/config.py` 或环境变量（MYSQL_*）。
+启动后：
+- 服务地址：`http://<本机IP>:5000`（默认 `0.0.0.0:5000`，支持非 localhost 访问）
+- 会自动执行数据库初始化（若未建表）
+- 会启动内置的任务调度（用于数据构造的定时执行）
 
-### 前端启动
+### 3. Agent 启动（仅在使用「数据构造」时需要）
 
-1. 进入前端目录：
+Agent 是实际执行 Kafka 发送 / ClickHouse 写入的节点，可部署在与主程序相同或不同的机器上。
+
+1. 进入 Agent 目录并安装依赖：
 ```bash
-cd frontend
+cd agent
+pip install -r requirements.txt
 ```
 
-2. 安装Node.js依赖：
+2. 启动（默认端口 5001）：
 ```bash
+python agent.py
+```
+
+3. **修改端口**：
+```bash
+python agent.py -p 5002
+# 或指定 host
+python agent.py --port 5002 --host 0.0.0.0
+```
+
+4. 启动后**在控制台**会输出一行 Token，例如：
+```
+============================================================
+Agent Token (use when registering):
+a1b2c3d4e5f6...
+============================================================
+```
+- 该 Token 按本机信息生成，**每台电脑固定**，重启不变。
+- 在主程序「数据构造」→「Agent 管理」→「新增 Agent」时，需填写 **Agent 的 URL** 和此 **Token**。
+
+### 4. 前端启动
+
+1. 进入前端目录并安装依赖：
+```bash
+cd frontend
 npm install
 ```
 
-3. 启动开发服务器：
+2. 开发环境默认会把 `/api` 代理到后端，默认后端地址为 `http://localhost:5000`。若后端地址或端口不同，需修改 `frontend/vite.config.js` 中的 `server.proxy['/api'].target`，例如：
+```javascript
+proxy: {
+  '/api': {
+    target: 'http://192.168.1.100:5000',  // 改成实际后端地址
+    changeOrigin: true
+  }
+}
+```
+
+3. 启动开发服务器（默认 `0.0.0.0:3000`，支持非 localhost 访问）：
 ```bash
 npm run dev
 ```
 
-前端应用将在 `http://localhost:3000` 启动
+4. 浏览器访问：`http://<本机IP>:3000`（本机可为 `http://localhost:3000`）。
+
+### 5. 地址与端口汇总
+
+| 模块   | 默认地址            | 配置方式 |
+|--------|---------------------|----------|
+| 后端   | `http://0.0.0.0:5000` | 环境变量 `FLASK_HOST`、`FLASK_PORT` 或 `backend/config.py` |
+| 前端   | `http://0.0.0.0:3000` | `frontend/vite.config.js` 的 `server.port`、`server.host` |
+| 前端请求后端 | `/api` → `http://localhost:5000` | `frontend/vite.config.js` 的 `server.proxy['/api'].target` |
+| Agent  | `http://0.0.0.0:5001` | 启动参数 `-p/--port`、`-H/--host` |
 
 ## API接口
 
