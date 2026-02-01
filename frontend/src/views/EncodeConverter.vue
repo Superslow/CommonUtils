@@ -249,7 +249,7 @@ const doUrlDecode = async () => {
 
 <style scoped>
 .encode-page {
-  max-width: 1000px;
+  max-width: 1400px;
   margin: 0 auto;
 }
 

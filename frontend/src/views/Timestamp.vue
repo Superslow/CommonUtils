@@ -83,7 +83,7 @@ const getCurrentTime = async () => {
 
 <style scoped>
 .timestamp-page {
-  max-width: 800px;
+  max-width: 1400px;
   margin: 0 auto;
 }
 
