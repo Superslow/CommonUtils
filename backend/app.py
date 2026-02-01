@@ -312,12 +312,37 @@ def _set_site_config(key, value):
 
 @app.route('/api/site/menu', methods=['GET'])
 def get_site_menu():
-    """获取菜单配置（顺序、是否可见），不需登录"""
-    items = _get_site_config('menu_items')
-    if not items:
-        items = DEFAULT_MENU_ITEMS
-    items = sorted(items, key=lambda x: x.get('sort_order', 999))
-    return jsonify({'success': True, 'data': items})
+    """获取菜单配置（顺序、是否可见），不需登录。与默认菜单合并，确保首页等默认项始终存在且可编辑/移动。"""
+    stored = _get_site_config('menu_items') or []
+    by_path = {it.get('path'): it for it in stored if isinstance(it, dict) and it.get('path')}
+    result = []
+    for i, d in enumerate(DEFAULT_MENU_ITEMS):
+        path = d.get('path')
+        s = by_path.get(path)
+        if s is not None:
+            result.append({
+                'label': s.get('label') or d.get('label'),
+                'path': path,
+                'sort_order': s.get('sort_order', i),
+                'visible': s.get('visible', True)
+            })
+        else:
+            result.append({
+                'label': d.get('label'),
+                'path': path,
+                'sort_order': d.get('sort_order', i),
+                'visible': d.get('visible', True)
+            })
+    for path, s in by_path.items():
+        if not any(r['path'] == path for r in result):
+            result.append({
+                'label': s.get('label', path),
+                'path': path,
+                'sort_order': s.get('sort_order', 999),
+                'visible': s.get('visible', True)
+            })
+    result.sort(key=lambda x: (x.get('sort_order', 999), x.get('path', '')))
+    return jsonify({'success': True, 'data': result})
 
 
 @app.route('/api/site/menu', methods=['PUT'])
