@@ -36,6 +36,7 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 # 任务调度状态
 _task_scheduler = None
 _task_stop_flags = {}
+_agent_status_thread = None
 
 
 def get_client_ip():
@@ -604,10 +605,18 @@ def get_cron_description(cron_expr):
 
 
 # ---------- Agent 管理（需登录） ----------
+def _ensure_agent_status_refresh_started():
+    """确保 Agent 状态刷新线程已启动（首次请求时启动，兼容 gunicorn）"""
+    global _agent_status_thread
+    if _agent_status_thread is None or not _agent_status_thread.is_alive():
+        start_agent_status_refresh()
+
+
 @app.route('/api/agents', methods=['GET'])
 @require_login
 def list_agents():
-    """Agent 列表：普通用户仅自己的，管理员全部并显示创建者"""
+    """Agent 列表：普通用户仅自己的，管理员全部；状态由后台定时刷新"""
+    _ensure_agent_status_refresh_started()
     user = get_current_user()
     try:
         with get_db() as conn:
@@ -1082,6 +1091,42 @@ def start_scheduler():
         _task_scheduler.start()
 
 
+def refresh_all_agents_status_loop():
+    """后台线程：每分钟刷新所有 Agent 的在线状态"""
+    while True:
+        try:
+            time.sleep(60)
+            with get_db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute('SELECT id, url, token FROM agents')
+                    rows = cur.fetchall()
+            for r in rows:
+                try:
+                    ok, _ = check_agent(r['url'], r['token'])
+                    status = 'online' if ok else 'offline'
+                except Exception:
+                    status = 'offline'
+                try:
+                    with get_db() as conn:
+                        with conn.cursor() as cur:
+                            cur.execute(
+                                'UPDATE agents SET status = %s, last_check_at = NOW() WHERE id = %s',
+                                (status, r['id'])
+                            )
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+
+def start_agent_status_refresh():
+    """启动 Agent 状态定时刷新线程"""
+    global _agent_status_thread
+    if _agent_status_thread is None or not _agent_status_thread.is_alive():
+        _agent_status_thread = threading.Thread(target=refresh_all_agents_status_loop, daemon=True)
+        _agent_status_thread.start()
+
+
 # ---------- 证书上传（Kafka） ----------
 @app.route('/api/upload/cert', methods=['POST'])
 @require_login
@@ -1107,5 +1152,6 @@ def health():
 if __name__ == '__main__':
     init_db()
     start_scheduler()
+    start_agent_status_refresh()
     from config import HOST, PORT, DEBUG
     app.run(debug=DEBUG, host=HOST, port=PORT)

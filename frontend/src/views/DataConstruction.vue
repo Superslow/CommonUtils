@@ -1,17 +1,19 @@
 <template>
   <div class="data-construction-page">
-    <div class="page-header">
-      <span class="user-info">{{ currentUser?.username || '—' }} <el-tag v-if="currentUser?.is_admin" type="danger" size="small">管理员</el-tag></span>
-      <el-button type="primary" link @click="logout">退出</el-button>
-    </div>
     <el-tabs v-model="activeTab">
       <el-tab-pane label="Agent 管理" name="agents">
         <el-button type="primary" @click="showAgentDialog()">新增 Agent</el-button>
+        <span class="status-hint">状态每 30 秒自动更新</span>
         <el-table :data="agents" border style="width: 100%; margin-top: 16px;">
           <el-table-column prop="name" label="名称" width="120" />
           <el-table-column prop="url" label="URL" min-width="200" />
-          <el-table-column v-if="currentUser?.is_admin" prop="creator_username" label="创建者" width="100" />
-          <el-table-column prop="status" label="状态" width="80" />
+          <el-table-column prop="status" label="状态" width="100">
+            <template #default="{ row }">
+              <el-tag :type="row.status === 'online' ? 'success' : row.status === 'offline' ? 'danger' : 'info'" size="small">
+                {{ row.status === 'online' ? '在线' : row.status === 'offline' ? '离线' : '未知' }}
+              </el-tag>
+            </template>
+          </el-table-column>
           <el-table-column label="操作" width="180" fixed="right">
             <template #default="{ row }">
               <el-button link type="primary" @click="checkAgentRow(row)">校验</el-button>
@@ -223,12 +225,13 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '../api'
 
 const router = useRouter()
+const route = useRoute()
 const activeTab = ref('agents')
 const currentUser = ref(null)
 const agents = ref([])
@@ -254,25 +257,49 @@ const paramConfigList = ref([])
 const executionsDialogVisible = ref(false)
 const executions = ref([])
 const currentTaskId = ref(null)
+let agentsPollTimer = null
+
+function getToken() {
+  try {
+    return localStorage.getItem('token')
+  } catch {
+    return null
+  }
+}
 
 function loadCurrentUser() {
   api.get('/auth/me').then(r => { if (r.success) currentUser.value = r.data }).catch(() => { currentUser.value = null })
-}
-function logout() {
-  localStorage.removeItem('token')
-  currentUser.value = null
-  router.push('/login?redirect=/data-construction')
 }
 
 const loadAgents = () => api.get('/agents').then(r => { if (r.success) agents.value = r.data })
 const loadTasks = () => api.get('/data-tasks').then(r => { if (r.success) tasks.value = r.data })
 const loadUsers = () => api.get('/users').then(r => { if (r.success) users.value = r.data })
 
-loadCurrentUser()
+onMounted(() => {
+  if (!getToken() || !getToken().trim()) {
+    router.replace({ path: '/login', query: { redirect: route.fullPath } })
+    return
+  }
+  loadCurrentUser()
+})
+
+onUnmounted(() => {
+  if (agentsPollTimer) clearInterval(agentsPollTimer)
+})
+
 watch(activeTab, (t) => {
-  if (t === 'agents') loadAgents()
-  else if (t === 'tasks') loadTasks()
-  else if (t === 'users') loadUsers()
+  if (t === 'agents') {
+    loadAgents()
+    if (agentsPollTimer) clearInterval(agentsPollTimer)
+    agentsPollTimer = setInterval(loadAgents, 30000)
+  } else {
+    if (agentsPollTimer) {
+      clearInterval(agentsPollTimer)
+      agentsPollTimer = null
+    }
+    if (t === 'tasks') loadTasks()
+    else if (t === 'users') loadUsers()
+  }
 }, { immediate: true })
 
 function showAgentDialog(row) {
@@ -442,16 +469,9 @@ function showExecutions(row) {
   margin: 0 auto;
 }
 
-.page-header {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.user-info {
-  font-size: 14px;
-  color: #606266;
+.status-hint {
+  margin-left: 12px;
+  font-size: 12px;
+  color: #909399;
 }
 </style>

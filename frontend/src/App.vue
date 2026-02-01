@@ -2,6 +2,14 @@
   <el-container>
     <el-header class="app-header">
       <h1 class="title">通用工具类集合</h1>
+      <div class="header-right">
+        <template v-if="authUser">
+          <span class="header-user">{{ authUser.username }}</span>
+          <el-tag v-if="authUser.is_admin" type="danger" size="small">管理员</el-tag>
+          <el-button type="primary" link @click="handleLogout">退出</el-button>
+        </template>
+        <el-button v-else type="primary" link @click="goLogin">登录</el-button>
+      </div>
     </el-header>
     <el-menu
       :default-active="activeMenu"
@@ -26,11 +34,48 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, computed, watch, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import api from './api'
 
 const route = useRoute()
+const router = useRouter()
 const activeMenu = computed(() => route.path || '/')
+const authUser = ref(null)
+
+function getToken() {
+  try {
+    return localStorage.getItem('token')
+  } catch {
+    return null
+  }
+}
+
+function loadAuthUser() {
+  const token = getToken()
+  if (!token || !token.trim()) {
+    authUser.value = null
+    return
+  }
+  api.get('/auth/me').then(r => {
+    if (r.success && r.data) authUser.value = r.data
+    else authUser.value = null
+  }).catch(() => { authUser.value = null })
+}
+
+function goLogin() {
+  const redirect = route.path === '/login' ? undefined : route.fullPath
+  router.push(redirect ? { path: '/login', query: { redirect } } : '/login')
+}
+
+function handleLogout() {
+  localStorage.removeItem('token')
+  authUser.value = null
+  router.push('/')
+}
+
+onMounted(loadAuthUser)
+watch(() => route.path, loadAuthUser)
 </script>
 
 <style>
@@ -49,7 +94,7 @@ body {
   color: white;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   padding: 0 20px;
 }
@@ -57,6 +102,22 @@ body {
 .app-header .title {
   font-size: 24px;
   font-weight: 500;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.header-right .el-button,
+.header-right .el-tag {
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.header-user {
+  font-size: 14px;
+  margin-right: 4px;
 }
 
 .app-menu {
