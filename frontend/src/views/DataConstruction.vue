@@ -8,8 +8,8 @@
           <span class="status-hint">状态每 30 秒自动更新</span>
         </div>
         <el-table :data="agents" border class="single-line-table" style="width: 100%; margin-top: 16px;">
-          <el-table-column prop="name" label="名称" width="120" />
-          <el-table-column prop="url" label="URL" min-width="200" show-overflow-tooltip />
+          <el-table-column prop="name" label="名称" min-width="200" show-overflow-tooltip />
+          <el-table-column prop="url" label="URL" min-width="240" show-overflow-tooltip />
           <el-table-column prop="status" label="状态" width="100">
             <template #default="{ row }">
               <el-tag :type="row.status === 'online' ? 'success' : row.status === 'offline' ? 'danger' : 'info'" size="small">
@@ -51,11 +51,11 @@
           <el-button @click="loadTasks">刷新</el-button>
         </div>
         <el-table :data="tasks" border class="single-line-table" style="width: 100%; margin-top: 16px;">
-          <el-table-column prop="name" label="任务名" width="140" show-overflow-tooltip />
+          <el-table-column prop="name" label="任务名" min-width="220" show-overflow-tooltip />
           <el-table-column prop="task_type" label="类型" width="100" />
           <el-table-column prop="cron_expr" label="Cron" width="120" show-overflow-tooltip />
           <el-table-column prop="batch_size" label="每批条数" width="90" />
-          <el-table-column prop="agent_name" label="Agent" width="120" show-overflow-tooltip />
+          <el-table-column prop="agent_name" label="Agent" min-width="200" show-overflow-tooltip />
           <el-table-column v-if="currentUser?.is_admin" prop="creator_username" label="创建者" width="100" />
           <el-table-column label="状态" width="140" min-width="140">
             <template #default="{ row }">
@@ -227,7 +227,7 @@
             <span class="param-hint">{{ paramHint(p.type) }}</span>
           </div>
           <div class="param-doc">
-            固定内容：填什么渲染什么。当前时间：可填 strftime 格式（如 %Y-%m-%d %H:%M:%S），留空默认。轮询：不填为本批内序号 1～每批条数；填逗号分隔值则按条轮询。批次号：任务第 N 次执行的整数。
+            固定内容：填什么渲染什么。当前时间：默认 %Y-%m-%d %H:%M:%S，可自定义 strftime 格式。轮询：不填为本批内序号 1～每批条数；填逗号分隔值则按条轮询。批次号：任务第 N 次执行的整数。
           </div>
         </el-form-item>
       </el-form>
@@ -316,6 +316,8 @@ const executionsDialogVisible = ref(false)
 const executions = ref([])
 const currentTaskId = ref(null)
 let agentsPollTimer = null
+
+const DEFAULT_CURRENT_TIME_FORMAT = '%Y-%m-%d %H:%M:%S'
 
 function getToken() {
   try {
@@ -485,10 +487,16 @@ async function uploadCert(file, fieldName) {
   return false
 }
 
+function onParamTypeChange(p, newType) {
+  if (newType === 'current_time' && (p.value === '' || p.value == null)) {
+    p.value = DEFAULT_CURRENT_TIME_FORMAT
+  }
+}
+
 function paramPlaceholder(type) {
   const t = type || 'fixed'
   if (t === 'fixed') return '填写什么即渲染什么'
-  if (t === 'current_time') return '如 %Y-%m-%d %H:%M:%S，留空用默认 yyyy-MM-dd HH:mm:ss'
+  if (t === 'current_time') return '默认 ' + DEFAULT_CURRENT_TIME_FORMAT + '，可改'
   if (t === 'round_robin') return '可选：逗号分隔多值轮询；不填则为 1～本批条数'
   if (t === 'timestamp_13' || t === 'timestamp_10' || t === 'batch') return '无需填值'
   return '值'

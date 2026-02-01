@@ -1,7 +1,7 @@
 <template>
   <el-container>
     <el-header class="app-header">
-      <h1 class="title">通用工具类集合</h1>
+      <h1 class="title">通用工具集合</h1>
       <div v-if="announcement && announcement.content" class="announcement-wrap" ref="announcementWrapRef">
         <el-icon class="announcement-icon"><BellFilled /></el-icon>
         <div class="announcement-marquee-wrap" ref="marqueeWrapRef">
