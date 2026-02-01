@@ -77,6 +77,15 @@ CREATE TABLE IF NOT EXISTS site_config (
 DROP TRIGGER IF EXISTS site_config_before_update;
 CREATE TRIGGER site_config_before_update BEFORE UPDATE ON site_config FOR EACH ROW SET NEW.updated_at = NOW();
 
+-- Kafka 证书表（管理员上传，任务通过名称/ID 关联）
+CREATE TABLE IF NOT EXISTS kafka_certs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL COMMENT '证书名称（展示与选择用）',
+    content LONGTEXT NOT NULL COMMENT 'PEM 证书内容',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_name (name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
 -- 任务执行记录表
 CREATE TABLE IF NOT EXISTS task_executions (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,

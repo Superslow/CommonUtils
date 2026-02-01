@@ -8,6 +8,8 @@ import hashlib
 import traceback
 import platform
 import socket
+import tempfile
+import os
 from functools import wraps
 from datetime import datetime
 from flask import Flask, request, jsonify
@@ -116,7 +118,12 @@ def execute_kafka(task_data, batch_no):
         producer.flush()
     finally:
         producer.close()
-    
+        if ssl_cafile_path and os.path.isfile(ssl_cafile_path):
+            try:
+                os.remove(ssl_cafile_path)
+            except Exception:
+                pass
+
     return {'sent_count': sent_count, 'topic': topic}
 
 

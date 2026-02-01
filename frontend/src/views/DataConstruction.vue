@@ -29,6 +29,22 @@
         </el-table>
       </el-tab-pane>
 
+      <el-tab-pane v-if="currentUser?.is_admin" label="Kafka 证书管理" name="kafka-certs">
+        <div class="toolbar-row">
+          <el-button type="primary" @click="showCertUpload()">上传证书</el-button>
+          <el-button @click="loadKafkaCerts">刷新</el-button>
+        </div>
+        <el-table :data="kafkaCerts" border class="single-line-table" style="width: 100%; margin-top: 16px;">
+          <el-table-column prop="name" label="证书名称" width="200" />
+          <el-table-column prop="created_at" label="上传时间" width="180" />
+          <el-table-column label="操作" width="120" fixed="right" align="left">
+            <template #default="{ row }">
+              <el-button link type="danger" @click="deleteKafkaCert(row)">删除</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-tab-pane>
+
       <el-tab-pane label="数据构造任务" name="tasks">
         <div class="toolbar-row">
           <el-button type="primary" @click="showTaskDialog()">新增任务</el-button>
@@ -161,13 +177,10 @@
             </el-form-item>
           </template>
           <el-form-item v-if="taskForm.kafkaSecurityProtocol === 'SSL' || taskForm.kafkaSecurityProtocol === 'SASL_SSL'" label="SSL CA 证书">
-            <el-input v-model="taskForm.kafkaSslCafile" placeholder="CA 证书（验证服务端，通常仅需此证书）" style="max-width: 360px">
-              <template #append>
-                <el-upload :show-file-list="false" :before-upload="(f) => { uploadCert(f, 'kafkaSslCafile'); return false }" accept=".pem,.crt,.cer">
-                  <el-button type="primary">上传</el-button>
-                </el-upload>
-              </template>
-            </el-input>
+            <el-select v-model="taskForm.kafkaSslCafileId" placeholder="选择已上传的证书" clearable style="width: 100%; max-width: 360px">
+              <el-option v-for="c in kafkaCerts" :key="c.id" :label="c.name" :value="c.id" />
+            </el-select>
+            <div class="cert-hint">若已有证书不满足需求，可联系管理员添加</div>
           </el-form-item>
         </template>
         <template v-else>
@@ -224,6 +237,29 @@
       </template>
     </el-dialog>
 
+    <!-- Kafka 证书上传弹窗 -->
+    <el-dialog v-model="certUploadVisible" title="上传 Kafka 证书" width="440px" :close-on-click-modal="false">
+      <el-form :model="certUploadForm" label-width="90px">
+        <el-form-item label="证书名称" required>
+          <el-input v-model="certUploadForm.name" placeholder="用于列表展示与选择，如：生产环境 CA" />
+        </el-form-item>
+        <el-form-item label="证书文件" required>
+          <el-upload
+            :auto-upload="false"
+            :limit="1"
+            :on-change="(f) => { certUploadForm.file = f?.raw }"
+            accept=".pem,.crt,.cer"
+          >
+            <el-button type="primary">选择 .pem / .crt / .cer 文件</el-button>
+          </el-upload>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="certUploadVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitCertUpload">确定</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 执行记录弹窗 -->
     <el-dialog v-model="executionsDialogVisible" title="执行记录" width="900px" :close-on-click-modal="false" @open="currentTaskId && loadExecutions()">
       <div class="executions-toolbar">
@@ -255,6 +291,9 @@ const activeTab = ref('agents')
 const currentUser = ref(null)
 const agents = ref([])
 const tasks = ref([])
+const kafkaCerts = ref([])
+const certUploadVisible = ref(false)
+const certUploadForm = ref({ name: '', file: null })
 const agentDialogVisible = ref(false)
 const editingAgent = ref(null)
 const agentForm = ref({ name: '', url: '', token: '', kafkaConfigStr: '' })
@@ -268,7 +307,7 @@ const taskForm = ref({
   template_content: '',
   kafkaBootstrap: '', kafkaTopic: '', kafkaSecurityProtocol: 'PLAINTEXT',
   kafkaUsername: '', kafkaPassword: '', kafkaSaslMechanism: 'PLAIN',
-  kafkaSslCafile: '',
+  kafkaSslCafileId: null,
   chHost: 'localhost', chPort: 9000, chUser: 'default', chPassword: ''
 })
 const templateParams = ref([])
@@ -292,6 +331,7 @@ function loadCurrentUser() {
 
 const loadAgents = () => api.get('/agents').then(r => { if (r.success) agents.value = r.data })
 const loadTasks = () => api.get('/data-tasks').then(r => { if (r.success) tasks.value = r.data })
+const loadKafkaCerts = () => api.get('/kafka-certs').then(r => { if (r.success) kafkaCerts.value = r.data })
 
 onMounted(() => {
   if (!getToken() || !getToken().trim()) {
@@ -316,6 +356,7 @@ watch(activeTab, (t) => {
       agentsPollTimer = null
     }
     if (t === 'tasks') loadTasks()
+    if (t === 'kafka-certs') loadKafkaCerts()
   }
 }, { immediate: true })
 
@@ -362,6 +403,36 @@ function deleteAgent(row) {
   }).catch(() => {})
 }
 
+function showCertUpload() {
+  certUploadForm.value = { name: '', file: null }
+  certUploadVisible.value = true
+}
+
+function submitCertUpload() {
+  const name = (certUploadForm.value.name || '').trim()
+  const file = certUploadForm.value.file
+  if (!name) { ElMessage.warning('请填写证书名称'); return }
+  if (!file) { ElMessage.warning('请选择证书文件'); return }
+  const formData = new FormData()
+  formData.append('name', name)
+  formData.append('file', file)
+  api.post('/kafka-certs', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
+    .then(r => {
+      if (r.success) { ElMessage.success('上传成功'); certUploadVisible.value = false; loadKafkaCerts() }
+      else ElMessage.error(r.error || '失败')
+    })
+    .catch(e => ElMessage.error(e.response?.data?.error || e.message))
+}
+
+function deleteKafkaCert(row) {
+  ElMessageBox.confirm('确定删除该证书？删除后使用该证书的任务将无法正常执行。', '提示', { type: 'warning' }).then(() => {
+    api.delete(`/kafka-certs/${row.id}`).then(r => {
+      if (r.success) { ElMessage.success('已删除'); loadKafkaCerts() }
+      else ElMessage.error(r.error)
+    }).catch(e => ElMessage.error(e.response?.data?.error || e.message))
+  }).catch(() => {})
+}
+
 function showTaskDialog(row) {
   editingTask.value = row || null
   if (row) {
@@ -373,7 +444,7 @@ function showTaskDialog(row) {
       kafkaBootstrap: k.bootstrap_servers || '', kafkaTopic: k.topic || '',
       kafkaSecurityProtocol: k.security_protocol || 'PLAINTEXT',
       kafkaUsername: k.username || '', kafkaPassword: k.password || '', kafkaSaslMechanism: k.sasl_mechanism || 'PLAIN',
-      kafkaSslCafile: k.ssl_cafile || '',
+      kafkaSslCafileId: k.ssl_cafile_id ?? null,
       chHost: c.host || 'localhost', chPort: c.port ?? 9000, chUser: c.user || 'default', chPassword: c.password || ''
     }
     templateParams.value = []
@@ -387,12 +458,13 @@ function showTaskDialog(row) {
       name: '', task_type: 'kafka', cron_expr: '0/1 * * * * ?', batch_size: 1, agent_id: null, template_content: '',
       kafkaBootstrap: '', kafkaTopic: '', kafkaSecurityProtocol: 'PLAINTEXT',
       kafkaUsername: '', kafkaPassword: '', kafkaSaslMechanism: 'PLAIN',
-      kafkaSslCafile: '',
+      kafkaSslCafileId: null,
       chHost: 'localhost', chPort: 9000, chUser: 'default', chPassword: ''
     }
     templateParams.value = []
     paramConfigList.value = []
   }
+  loadKafkaCerts()
   taskDialogVisible.value = true
 }
 
@@ -466,7 +538,7 @@ function submitTask() {
       username: taskForm.value.kafkaUsername?.trim() || undefined,
       password: taskForm.value.kafkaPassword?.trim() || undefined,
       sasl_mechanism: taskForm.value.kafkaSaslMechanism || 'PLAIN',
-      ssl_cafile: taskForm.value.kafkaSslCafile?.trim() || undefined
+      ssl_cafile_id: taskForm.value.kafkaSslCafileId ?? undefined
     }
   } else {
     connector_config.clickhouse = {
@@ -566,6 +638,12 @@ function clearExecutions() {
   font-size: 12px;
   color: #909399;
   line-height: 1.5;
+}
+
+.cert-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #909399;
 }
 
 .toolbar-row {
