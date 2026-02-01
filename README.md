@@ -86,14 +86,17 @@ cd backend
 pip install -r requirements.txt
 ```
 
-2. （可选）配置监听地址与端口：
+2. （可选）配置监听地址与端口、**客户端 IP 来源**（多机访问时必看）：
    - **环境变量**：
      ```bash
-     export FLASK_HOST=0.0.0.0    # 非本机访问时设为 0.0.0.0
+     export FLASK_HOST=0.0.0.0
      export FLASK_PORT=5000
      export FLASK_DEBUG=true
+     # 若前端通过反向代理（如 nginx）访问后端，必须设置真实客户端 IP 头，否则所有人会被当成同一 IP，权限错误
+     export CLIENT_IP_HEADER=X-Forwarded-For
      ```
-   - 或在 `backend/config.py` 中修改 `HOST`、`PORT`、`DEBUG`。
+   - 在 nginx 中需设置：`proxy_set_header X-Forwarded-For $remote_addr;`
+   - 或在 `backend/config.py` 中修改 `HOST`、`PORT`、`CLIENT_IP_HEADER`。
 
 3. 启动服务：
 ```bash

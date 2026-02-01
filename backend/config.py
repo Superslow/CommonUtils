@@ -41,6 +41,10 @@ DEBUG = os.getenv('FLASK_DEBUG', 'true').lower() == 'true'
 HOST = os.getenv('FLASK_HOST', '0.0.0.0')
 PORT = int(os.getenv('FLASK_PORT', 5000))
 
+# 客户端 IP 来源（反向代理场景下必须设置，否则所有请求会被视为来自代理 IP，权限会错误）
+# 例如 nginx: proxy_set_header X-Forwarded-For $remote_addr; 则设为 X-Forwarded-For
+CLIENT_IP_HEADER = os.getenv('CLIENT_IP_HEADER', '').strip() or None
+
 # 管理员IP：部署机器所在 IP（从本机或部署机 IP 访问可管理所有 Agent/任务）+ 数据库 admin_ips 表
 DEFAULT_ADMIN_IPS = ['127.0.0.1', '::1']
 DEPLOYMENT_IPS = get_deployment_ips()
