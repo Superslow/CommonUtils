@@ -12,6 +12,8 @@ from functools import wraps
 from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from kafka import KafkaProducer
+from clickhouse_driver import Client
 
 app = Flask(__name__)
 CORS(app)
@@ -75,8 +77,6 @@ def execute():
 
 
 def execute_kafka(task_data, batch_no):
-    from kafka import KafkaProducer
-    
     bootstrap_servers = task_data.get('bootstrap_servers', 'localhost:9092')
     topic = task_data.get('topic')
     messages = task_data.get('messages', [])
@@ -120,8 +120,6 @@ def execute_kafka(task_data, batch_no):
 
 
 def execute_clickhouse(task_data, batch_no):
-    from clickhouse_driver import Client
-    
     host = task_data.get('host', 'localhost')
     port = task_data.get('port', 9000)
     sqls = task_data.get('sqls', [])
