@@ -8,6 +8,8 @@ import { setApiRouter } from './api'
 
 setApiRouter(router)
 
+const app = createApp(App)
+
 // 注册所有图标
 for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
   app.component(key, component)
