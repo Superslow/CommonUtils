@@ -1,11 +1,11 @@
--- CommonUtils 数据库表结构
+-- CommonUtils 数据库表结构（兼容 MySQL 5.5.x，JSON 用 TEXT 存储）
 -- 管理员IP列表（可修改/删除所有任务和Agent）
 CREATE TABLE IF NOT EXISTS admin_ips (
     id INT AUTO_INCREMENT PRIMARY KEY,
     ip VARCHAR(45) NOT NULL UNIQUE,
     remark VARCHAR(255) DEFAULT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
 -- Agent节点表
 CREATE TABLE IF NOT EXISTS agents (
@@ -15,12 +15,12 @@ CREATE TABLE IF NOT EXISTS agents (
     token VARCHAR(128) NOT NULL COMMENT '验证Token',
     creator_ip VARCHAR(45) NOT NULL COMMENT '创建者IP',
     status ENUM('online', 'offline', 'unknown') DEFAULT 'unknown',
-    last_check_at TIMESTAMP NULL,
-    kafka_config JSON DEFAULT NULL COMMENT 'Kafka连接配置(可选，任务级也可配置)',
+    last_check_at TIMESTAMP NULL DEFAULT NULL,
+    kafka_config TEXT DEFAULT NULL COMMENT 'Kafka连接配置(可选，任务级也可配置)',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_creator_ip (creator_ip)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
 -- 数据构造任务表
 CREATE TABLE IF NOT EXISTS data_tasks (
@@ -32,15 +32,15 @@ CREATE TABLE IF NOT EXISTS data_tasks (
     batch_size INT DEFAULT 1 COMMENT '每批数据条数',
     agent_id INT NOT NULL COMMENT '执行Agent',
     template_content TEXT NOT NULL COMMENT '模板内容(JSON或SQL)',
-    param_config JSON DEFAULT NULL COMMENT '参数配置[{param, type, value}]',
-    connector_config JSON DEFAULT NULL COMMENT '连接器配置(Kafka/ClickHouse)',
+    param_config TEXT DEFAULT NULL COMMENT '参数配置[{param, type, value}]',
+    connector_config TEXT DEFAULT NULL COMMENT '连接器配置(Kafka/ClickHouse)',
     creator_ip VARCHAR(45) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE RESTRICT,
+    updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_creator_ip (creator_ip),
-    INDEX idx_status (status)
-);
+    INDEX idx_status (status),
+    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
 -- 任务执行记录表
 CREATE TABLE IF NOT EXISTS task_executions (
@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS task_executions (
     success TINYINT(1) DEFAULT 1,
     result_message TEXT,
     records_count INT DEFAULT 0,
-    FOREIGN KEY (task_id) REFERENCES data_tasks(id) ON DELETE CASCADE,
     INDEX idx_task_id (task_id),
-    INDEX idx_executed_at (executed_at)
-);
+    INDEX idx_executed_at (executed_at),
+    FOREIGN KEY (task_id) REFERENCES data_tasks(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
