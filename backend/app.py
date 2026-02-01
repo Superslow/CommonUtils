@@ -1185,6 +1185,28 @@ def list_task_executions(tid):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/data-tasks/<int:tid>/executions', methods=['DELETE'])
+@require_login
+def clear_task_executions(tid):
+    """清空该任务的历史执行记录（仅任务创建者或管理员）"""
+    user = get_current_user()
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT creator_user_id FROM data_tasks WHERE id = %s', (tid,))
+                row = cur.fetchone()
+            if not row:
+                return jsonify({'error': '任务不存在'}), 404
+            cid = row.get('creator_user_id')
+            if not user.get('is_admin') and (cid is None or cid != user['id']):
+                return jsonify({'error': '无权限'}), 403
+            with conn.cursor() as cur:
+                cur.execute('DELETE FROM task_executions WHERE task_id = %s', (tid,))
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 def run_task_once(task_id):
     """执行一次任务并记录结果"""
     batch_no = 1
