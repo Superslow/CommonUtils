@@ -62,20 +62,25 @@ const routes = [
     path: '/data-construction',
     name: 'DataConstruction',
     component: DataConstruction,
-    meta: { requiresAuth: true },
-    beforeEnter: (_to, _from, next) => {
-      if (!getToken()) {
-        next({ path: '/login', query: { redirect: '/data-construction' } })
-      } else {
-        next()
-      }
-    }
+    meta: { requiresAuth: true }
   }
 ]
 
 const router = createRouter({
   history: createWebHistory(),
   routes
+})
+
+// 全局前置守卫：需要登录的页面未带 token 时跳转登录
+router.beforeEach((to, _from, next) => {
+  if (to.meta.requiresAuth) {
+    const token = getToken()
+    if (!token || !token.trim()) {
+      next({ path: '/login', query: { redirect: to.fullPath } })
+      return
+    }
+  }
+  next()
 })
 
 export default router
