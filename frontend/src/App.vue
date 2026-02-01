@@ -1,15 +1,16 @@
 <template>
   <el-container>
-    <el-alert
-      v-if="announcement && announcement.content"
-      type="info"
-      :title="announcement.content"
-      :closable="false"
-      class="app-announcement"
-      show-icon
-    />
     <el-header class="app-header">
       <h1 class="title">通用工具类集合</h1>
+      <div v-if="announcement && announcement.content" class="announcement-wrap" ref="announcementWrapRef">
+        <el-icon class="announcement-icon"><BellFilled /></el-icon>
+        <div class="announcement-marquee-wrap" ref="marqueeWrapRef">
+          <div class="announcement-inner" :class="{ 'is-scroll': needMarquee }">
+            <span class="announcement-text">{{ announcement.content }}</span>
+            <span v-if="needMarquee" class="announcement-text announcement-text-dup">{{ announcement.content }}</span>
+          </div>
+        </div>
+      </div>
       <div class="header-right">
         <template v-if="authUser">
           <el-dropdown trigger="click" @command="handleUserCommand">
@@ -33,7 +34,7 @@
       </div>
 
     <!-- 修改密码弹窗 -->
-    <el-dialog v-model="passwordDialogVisible" title="修改密码" width="400px" @close="resetPasswordForm">
+    <el-dialog v-model="passwordDialogVisible" title="修改密码" width="400px" :close-on-click-modal="false" @close="resetPasswordForm">
       <el-form :model="passwordForm" label-width="90px">
         <el-form-item label="原密码" required>
           <el-input v-model="passwordForm.old_password" type="password" placeholder="原密码" show-password />
@@ -52,7 +53,7 @@
     </el-dialog>
 
     <!-- 发布公告弹窗 -->
-    <el-dialog v-model="announcementDialogVisible" title="发布公告" width="560px" @close="announcementForm = ''">
+    <el-dialog v-model="announcementDialogVisible" title="发布公告" width="560px" :close-on-click-modal="false" @close="announcementForm = ''">
       <el-input v-model="announcementForm" type="textarea" :rows="6" placeholder="输入公告内容，留空可清空公告" />
       <template #footer>
         <el-button @click="announcementDialogVisible = false">取消</el-button>
@@ -78,10 +79,10 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowDown } from '@element-plus/icons-vue'
+import { ArrowDown, BellFilled } from '@element-plus/icons-vue'
 import api from './api'
 
 const route = useRoute()
@@ -175,7 +176,7 @@ function loadMenu() {
 }
 
 function loadAnnouncement() {
-  api.get('/site/announcement').then(r => {
+  return api.get('/site/announcement').then(r => {
     if (r.success && r.data) announcement.value = r.data
     else announcement.value = null
   }).catch(() => { announcement.value = null })
@@ -229,12 +230,15 @@ function submitChangePassword() {
 onMounted(() => {
   loadAuthUser()
   loadMenu()
-  loadAnnouncement()
+  loadAnnouncement().then(() => nextTick(checkMarquee))
   window.addEventListener('site-menu-updated', loadMenu)
+  window.addEventListener('resize', checkMarquee)
 })
 onUnmounted(() => {
   window.removeEventListener('site-menu-updated', loadMenu)
+  window.removeEventListener('resize', checkMarquee)
 })
+watch(announcement, () => nextTick(checkMarquee), { deep: true })
 watch(() => route.path, loadAuthUser)
 </script>
 
@@ -313,9 +317,54 @@ body {
   font-size: 14px;
 }
 
-.app-announcement {
-  border-radius: 0;
-  margin: 0;
+/* 公告：标题与账号之间，喇叭图标 + 长文滚动 */
+.announcement-wrap {
+  flex: 1;
+  min-width: 0;
+  max-width: 60%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 20px;
+  color: rgba(255, 255, 255, 0.95);
+  font-size: 14px;
+}
+.announcement-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+  animation: announcement-bell 2s ease-in-out infinite;
+}
+@keyframes announcement-bell {
+  0%, 100% { transform: scale(1) rotate(0deg); }
+  15% { transform: scale(1.1) rotate(-8deg); }
+  30% { transform: scale(1.1) rotate(8deg); }
+  45% { transform: scale(1.1) rotate(-6deg); }
+  60% { transform: scale(1.1) rotate(6deg); }
+  75% { transform: scale(1.05) rotate(-2deg); }
+}
+.announcement-marquee-wrap {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.announcement-inner {
+  display: inline-block;
+  white-space: nowrap;
+}
+.announcement-inner.is-scroll {
+  display: inline-flex;
+  animation: announcement-marquee 25s linear infinite;
+}
+.announcement-inner.is-scroll .announcement-text {
+  flex-shrink: 0;
+  padding-right: 3em;
+}
+.announcement-text-dup {
+  padding-right: 3em;
+}
+@keyframes announcement-marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
 }
 
 .app-main {
