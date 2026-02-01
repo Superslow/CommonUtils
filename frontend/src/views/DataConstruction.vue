@@ -280,7 +280,7 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '../api'
@@ -303,7 +303,7 @@ const checkResult = ref(null)
 const taskDialogVisible = ref(false)
 const editingTask = ref(null)
 const taskForm = ref({
-  name: '', task_type: 'kafka', cron_expr: '0/1 * * * * ?', batch_size: 1, agent_id: null,
+  name: '', task_type: 'kafka', cron_expr: '0 0/1 * * * ?', batch_size: 1, agent_id: null,
   template_content: '',
   kafkaBootstrap: '', kafkaTopic: '', kafkaSecurityProtocol: 'PLAINTEXT',
   kafkaUsername: '', kafkaPassword: '', kafkaSaslMechanism: 'PLAIN',
@@ -453,11 +453,14 @@ function showTaskDialog(row) {
     paramConfigList.value = []
     if (row.param_config && row.param_config.length) {
       templateParams.value = row.param_config.map(x => x.param)
-      paramConfigList.value = row.param_config
+      paramConfigList.value = row.param_config.map(p => ({
+        ...p,
+        value: p.type === 'current_time' && (p.value === '' || p.value == null) ? DEFAULT_CURRENT_TIME_FORMAT : (p.value ?? '')
+      }))
     }
   } else {
     taskForm.value = {
-      name: '', task_type: 'kafka', cron_expr: '0/1 * * * * ?', batch_size: 1, agent_id: null, template_content: '',
+      name: '', task_type: 'kafka', cron_expr: '0 0/1 * * * ?', batch_size: 1, agent_id: null, template_content: '',
       kafkaBootstrap: '', kafkaTopic: '', kafkaSecurityProtocol: 'PLAINTEXT',
       kafkaUsername: '', kafkaPassword: '', kafkaSaslMechanism: 'PLAIN',
       kafkaSslCafileId: null,
@@ -489,14 +492,20 @@ async function uploadCert(file, fieldName) {
 
 function onParamTypeChange(p, newType) {
   if (newType === 'current_time' && (p.value === '' || p.value == null)) {
-    p.value = DEFAULT_CURRENT_TIME_FORMAT
+    nextTick(() => {
+      paramConfigList.value = paramConfigList.value.map(item =>
+        item.param === p.param
+          ? { ...item, type: newType, value: DEFAULT_CURRENT_TIME_FORMAT }
+          : item
+      )
+    })
   }
 }
 
 function paramPlaceholder(type) {
   const t = type || 'fixed'
   if (t === 'fixed') return '填写什么即渲染什么'
-  if (t === 'current_time') return '默认 ' + DEFAULT_CURRENT_TIME_FORMAT + '，可改'
+  if (t === 'current_time') return '输入格式化符号对时间进行格式化'
   if (t === 'round_robin') return '可选：逗号分隔多值轮询；不填则为 1～本批条数'
   if (t === 'timestamp_13' || t === 'timestamp_10' || t === 'batch') return '无需填值'
   return '值'
