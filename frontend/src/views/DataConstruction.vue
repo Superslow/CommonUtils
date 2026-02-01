@@ -553,7 +553,7 @@ function submitTask() {
       host: taskForm.value.chHost?.trim() || 'localhost',
       port: taskForm.value.chPort ?? 9000,
       user: taskForm.value.chUser?.trim() || 'default',
-      password: taskForm.value.chPassword?.trim() || undefined
+      password: (taskForm.value.chPassword != null && String(taskForm.value.chPassword).trim() !== '') ? String(taskForm.value.chPassword).trim() : ''
     }
   }
   const payload = {
