@@ -7,7 +7,7 @@ from contextlib import contextmanager
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DATABASE, DEFAULT_ADMIN_IPS
+from config import MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DATABASE, DEFAULT_ADMIN_IPS, DEPLOYMENT_IPS
 
 _pool = None
 
@@ -57,8 +57,11 @@ def init_db():
 
 
 def is_admin_ip(ip, conn=None):
-    """检查IP是否为管理员"""
-    if ip in DEFAULT_ADMIN_IPS:
+    """检查IP是否为管理员（部署机器所在 IP 或数据库 admin_ips 表中的 IP 均可管理所有 Agent/任务）"""
+    if not ip:
+        return False
+    ip = str(ip).strip()
+    if ip in DEFAULT_ADMIN_IPS or ip in DEPLOYMENT_IPS:
         return True
     try:
         close_conn = conn is None

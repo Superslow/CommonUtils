@@ -30,22 +30,31 @@ _task_stop_flags = {}
 
 
 def get_client_ip():
-    """获取客户端IP"""
-    return request.headers.get('X-Forwarded-For', request.headers.get('X-Real-IP', request.remote_addr or '')).split(',')[0].strip() or '127.0.0.1'
+    """获取客户端IP（用于权限校验：仅创建者本人或管理员可修改/删除）"""
+    raw = request.headers.get('X-Forwarded-For') or request.headers.get('X-Real-IP') or request.remote_addr or ''
+    return raw.split(',')[0].strip() or '127.0.0.1'
 
 
 def can_modify_agent(agent, client_ip):
-    """检查是否可以修改Agent（管理员或创建者）"""
+    """是否允许修改/删除该 Agent：仅当当前请求 IP 为创建者或管理员时允许"""
+    if not client_ip:
+        return False
+    client_ip = str(client_ip).strip()
     if is_admin_ip(client_ip):
         return True
-    return agent.get('creator_ip') == client_ip
+    creator_ip = str(agent.get('creator_ip') or '').strip()
+    return creator_ip == client_ip
 
 
 def can_modify_task(task, client_ip):
-    """检查是否可以修改任务"""
+    """是否允许修改/删除该任务：仅当当前请求 IP 为创建者或管理员时允许"""
+    if not client_ip:
+        return False
+    client_ip = str(client_ip).strip()
     if is_admin_ip(client_ip):
         return True
-    return task.get('creator_ip') == client_ip
+    creator_ip = str(task.get('creator_ip') or '').strip()
+    return creator_ip == client_ip
 
 
 @app.route('/api/timestamp/convert', methods=['POST'])
@@ -457,7 +466,7 @@ def list_agents():
         agents = []
         for r in rows:
             item = dict(r)
-            item['is_owner'] = item['creator_ip'] == client_ip or is_admin_ip(client_ip)
+            item['is_owner'] = can_modify_agent(item, client_ip)
             item['last_check_at'] = item['last_check_at'].isoformat() if item.get('last_check_at') else None
             if item.get('kafka_config') and isinstance(item['kafka_config'], str):
                 try:
