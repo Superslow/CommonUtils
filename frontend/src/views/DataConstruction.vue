@@ -8,9 +8,6 @@
           <el-table-column prop="url" label="URL" min-width="200" />
           <el-table-column prop="creator_ip" label="创建者IP" width="140" />
           <el-table-column prop="status" label="状态" width="80" />
-          <el-table-column prop="is_owner" label="是否本人" width="90">
-            <template #default="{ row }">{{ row.is_owner ? '是' : '否' }}</template>
-          </el-table-column>
           <el-table-column label="操作" width="180" fixed="right">
             <template #default="{ row }">
               <el-button link type="primary" @click="checkAgentRow(row)">校验</el-button>
