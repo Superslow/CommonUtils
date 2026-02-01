@@ -303,9 +303,27 @@ def ip_check():
         return jsonify({'error': str(e)}), 500
 
 
+def _normalize_cron_to_croniter(cron_expr):
+    """
+    将 Cron 表达式转为 croniter 可用的格式。
+    - 5 字段：分 时 日 月 周，直接返回。
+    - 6 字段（Quartz）：秒 分 时 日 月 周，转为 croniter 的 6 字段：分 时 日 月 周 秒，? 转为 *。
+    """
+    parts = cron_expr.strip().split()
+    if len(parts) == 5:
+        return cron_expr.strip()
+    if len(parts) == 6:
+        # Quartz: sec min hour day month dow -> croniter: min hour day month dow sec（croniter 秒在最后）
+        sec, minute, hour, day, month, dow = parts
+        def q(s):
+            return '*' if s == '?' else s
+        return ' '.join([q(minute), q(hour), q(day), q(month), q(dow), q(sec)])
+    return None
+
+
 @app.route('/api/cron/parse', methods=['POST'])
 def cron_parse():
-    """Cron表达式解析"""
+    """Cron表达式解析（支持 5 字段标准格式与 6 字段 Quartz 格式，如 0 * * * * ?）"""
     try:
         data = request.get_json()
         cron_expr = data.get('cron')
@@ -315,12 +333,16 @@ def cron_parse():
             return jsonify({'error': '缺少cron参数'}), 400
         
         try:
-            base_time = datetime.now()
-            cron = croniter(cron_expr, base_time)
+            normalized = _normalize_cron_to_croniter(cron_expr)
+            if normalized is None:
+                raise ValueError('Cron 表达式须为 5 字段（分 时 日 月 周）或 6 字段 Quartz（秒 分 时 日 月 周）')
             
-            parts = cron_expr.split()
-            if len(parts) != 5:
-                raise ValueError('Cron表达式必须包含5个字段（分 时 日 月 周）')
+            base_time = datetime.now()
+            cron = croniter(normalized, base_time)
+            
+            parts = cron_expr.strip().split()
+            field_names = ['minute', 'hour', 'day', 'month', 'weekday'] if len(parts) == 5 else ['second', 'minute', 'hour', 'day', 'month', 'weekday']
+            fields = dict(zip(field_names, parts))
             
             next_times = []
             for i in range(count):
@@ -335,13 +357,7 @@ def cron_parse():
             result = {
                 'cron': cron_expr,
                 'valid': True,
-                'fields': {
-                    'minute': parts[0],
-                    'hour': parts[1],
-                    'day': parts[2],
-                    'month': parts[3],
-                    'weekday': parts[4]
-                },
+                'fields': fields,
                 'next_times': next_times,
                 'description': get_cron_description(cron_expr)
             }
@@ -361,54 +377,69 @@ def cron_parse():
 
 
 def get_cron_description(cron_expr):
-    """获取Cron表达式的描述"""
-    parts = cron_expr.split()
-    if len(parts) != 5:
+    """获取Cron表达式的描述（支持 5 或 6 字段）"""
+    parts = cron_expr.strip().split()
+    if len(parts) not in (5, 6):
         return '无效的Cron表达式'
     
-    descriptions = []
+    # 6 字段 Quartz：秒 分 时 日 月 周
+    if len(parts) == 6:
+        sec, minute, hour, day, month, dow = parts
+        desc_sec = f'第{sec}秒' if sec != '*' and sec != '?' else '每秒'
+        minute = '*' if minute == '?' else minute
+        hour = '*' if hour == '?' else hour
+        day = '*' if day == '?' else day
+        month = '*' if month == '?' else month
+        dow = '*' if dow == '?' else dow
+    else:
+        minute, hour, day, month, dow = parts
+        desc_sec = ''
     
-    if parts[0] == '*':
+    descriptions = []
+    if desc_sec:
+        descriptions.append(desc_sec)
+    
+    if minute == '*':
         descriptions.append('每分钟')
-    elif '/' in parts[0]:
-        interval = parts[0].split('/')[1]
+    elif '/' in minute:
+        interval = minute.split('/')[1]
         descriptions.append(f'每{interval}分钟')
     else:
-        descriptions.append(f'在{parts[0]}分')
+        descriptions.append(f'在{minute}分')
     
-    if parts[1] == '*':
+    if hour == '*':
         descriptions.append('每小时')
-    elif '/' in parts[1]:
-        interval = parts[1].split('/')[1]
+    elif '/' in hour:
+        interval = hour.split('/')[1]
         descriptions.append(f'每{interval}小时')
     else:
-        descriptions.append(f'在{parts[1]}时')
+        descriptions.append(f'在{hour}时')
     
-    if parts[2] == '*':
+    if day == '*':
         descriptions.append('每天')
-    elif '/' in parts[2]:
-        interval = parts[2].split('/')[1]
+    elif '/' in day:
+        interval = day.split('/')[1]
         descriptions.append(f'每{interval}天')
     else:
-        descriptions.append(f'在{parts[2]}日')
+        descriptions.append(f'在{day}日')
     
-    if parts[3] == '*':
+    if month == '*':
         descriptions.append('每月')
-    elif '/' in parts[3]:
-        interval = parts[3].split('/')[1]
+    elif '/' in month:
+        interval = month.split('/')[1]
         descriptions.append(f'每{interval}月')
     else:
-        descriptions.append(f'在{parts[3]}月')
+        descriptions.append(f'在{month}月')
     
     weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
-    if parts[4] == '*':
+    if dow == '*':
         descriptions.append('每周')
-    elif parts[4].isdigit():
-        day = int(parts[4])
-        if 0 <= day <= 6:
-            descriptions.append(f'在{weekdays[day]}')
+    elif dow.isdigit():
+        day_num = int(dow)
+        if 0 <= day_num <= 6:
+            descriptions.append(f'在{weekdays[day_num]}')
     else:
-        descriptions.append(f'在{parts[4]}')
+        descriptions.append(f'在{dow}')
     
     return ' '.join(descriptions)
 
@@ -470,7 +501,7 @@ def create_agent():
 def update_agent(aid):
     """更新Agent（仅管理员或创建者）"""
     client_ip = get_client_ip()
-    data = request.get_json()
+    data = request.get_json() or {}
     try:
         with get_db() as conn:
             with conn.cursor() as cur:
@@ -481,17 +512,27 @@ def update_agent(aid):
             if not can_modify_agent(agent, client_ip):
                 return jsonify({'error': '无权限修改'}), 403
             name = data.get('name') or agent['name']
-            url = data.get('url') or agent['url']
-            token = data.get('token') or agent['token']
+            url = (data.get('url') or agent['url']).strip().rstrip('/')
+            token = data.get('token') or agent.get('token') or ''
             kafka_config = data.get('kafka_config')
-            if data.get('url') or data.get('token'):
+            if data.get('url') or (data.get('token') and data.get('token').strip()):
                 ok, _ = check_agent(url, token)
                 if not ok:
                     return jsonify({'error': 'Agent不可用或Token错误'}), 400
+            kafka_val = None
+            if kafka_config is not None:
+                kafka_val = json.dumps(kafka_config) if isinstance(kafka_config, dict) else str(kafka_config)
+            else:
+                raw = agent.get('kafka_config')
+                if isinstance(raw, str):
+                    kafka_val = raw
+                elif raw is not None:
+                    kafka_val = json.dumps(raw)
             with conn.cursor() as cur:
                 cur.execute(
                     'UPDATE agents SET name=%s, url=%s, token=%s, kafka_config=%s, last_check_at=NOW() WHERE id=%s',
-                    (name, url.rstrip('/'), token, json.dumps(kafka_config) if kafka_config else agent.get('kafka_config'), aid))
+                    (name, url, token, kafka_val, aid)
+                )
             conn.commit()
         return jsonify({'success': True})
     except Exception as e:
@@ -808,7 +849,7 @@ def run_task_once(task_id):
 
 
 def scheduler_loop():
-    """调度循环：按Cron执行运行中的任务"""
+    """调度循环：按Cron执行运行中的任务（支持 5 字段与 6 字段 Quartz）"""
     from croniter import croniter
     while True:
         try:
@@ -821,10 +862,12 @@ def scheduler_loop():
                 if _task_stop_flags.get(t['id']):
                     continue
                 try:
-                    cron = croniter(t['cron_expr'], now)
-                    next_run = cron.get_next(datetime)
-                    if (next_run - now).total_seconds() < 60:
-                        run_task_once(t['id'])
+                    normalized = _normalize_cron_to_croniter(t['cron_expr'])
+                    if normalized:
+                        cron = croniter(normalized, now)
+                        next_run = cron.get_next(datetime)
+                        if (next_run - now).total_seconds() < 60:
+                            run_task_once(t['id'])
                 except Exception:
                     pass
         except Exception:
