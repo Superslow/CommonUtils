@@ -13,8 +13,8 @@
             </template>
           </el-input>
           <div class="cron-hint">
-            <p>格式：分 时 日 月 周</p>
-            <p>示例：0 0 12 * * ? (每天12点执行)</p>
+            <p>5 字段：分 时 日 月 周，如 <code>* * * * *</code> 每分钟</p>
+            <p>6 字段（Quartz）：秒 分 时 日 月 周，如 <code>0 * * * * ?</code> 每分钟、<code>0 0 12 * * ?</code> 每天12点</p>
           </div>
         </el-form-item>
         <el-form-item label="显示次数">
@@ -35,12 +35,13 @@
 
         <div v-if="result.valid">
           <h3>表达式字段：</h3>
-          <el-descriptions :column="5" border style="margin-bottom: 20px">
-            <el-descriptions-item label="分钟">{{ result.fields.minute }}</el-descriptions-item>
-            <el-descriptions-item label="小时">{{ result.fields.hour }}</el-descriptions-item>
-            <el-descriptions-item label="日期">{{ result.fields.day }}</el-descriptions-item>
-            <el-descriptions-item label="月份">{{ result.fields.month }}</el-descriptions-item>
-            <el-descriptions-item label="星期">{{ result.fields.weekday }}</el-descriptions-item>
+          <el-descriptions :column="result.fields.second !== undefined ? 6 : 5" border style="margin-bottom: 20px">
+            <el-descriptions-item v-if="result.fields.second !== undefined" label="秒">{{ result.fields.second }}</el-descriptions-item>
+            <el-descriptions-item label="分">{{ result.fields.minute }}</el-descriptions-item>
+            <el-descriptions-item label="时">{{ result.fields.hour }}</el-descriptions-item>
+            <el-descriptions-item label="日">{{ result.fields.day }}</el-descriptions-item>
+            <el-descriptions-item label="月">{{ result.fields.month }}</el-descriptions-item>
+            <el-descriptions-item label="周">{{ result.fields.weekday }}</el-descriptions-item>
           </el-descriptions>
 
           <h3>未来执行时间：</h3>

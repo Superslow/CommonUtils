@@ -98,7 +98,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="Cron 表达式" required>
-          <el-input v-model="taskForm.cron_expr" placeholder="如 0 * * * * ? 每小时" />
+          <el-input v-model="taskForm.cron_expr" placeholder="5 字段：* * * * * 每分钟；6 字段 Quartz：0 * * * * ? 每分钟" />
         </el-form-item>
         <el-form-item label="每批条数" required>
           <el-input-number v-model="taskForm.batch_size" :min="1" :max="1000" />
@@ -108,12 +108,63 @@
             <el-option v-for="a in agents.filter(x => x.is_owner)" :key="a.id" :label="a.name" :value="a.id" />
           </el-select>
         </el-form-item>
-        <el-form-item v-if="taskForm.task_type === 'kafka'" label="连接配置">
-          <el-input v-model="taskForm.connectorKafkaStr" type="textarea" :rows="5" placeholder='{"kafka":{"bootstrap_servers":"localhost:9092","topic":"test","username":"","password":""}}' />
-        </el-form-item>
-        <el-form-item v-else label="连接配置">
-          <el-input v-model="taskForm.connectorClickHouseStr" type="textarea" :rows="4" placeholder='{"clickhouse":{"host":"localhost","port":9000,"user":"default","password":""}}' />
-        </el-form-item>
+        <template v-if="taskForm.task_type === 'kafka'">
+          <el-divider content-position="left">Kafka 连接配置</el-divider>
+          <el-form-item label="Bootstrap" required>
+            <el-input v-model="taskForm.kafkaBootstrap" placeholder="如 localhost:9092 或 host1:9092,host2:9092" />
+          </el-form-item>
+          <el-form-item label="Topic" required>
+            <el-input v-model="taskForm.kafkaTopic" placeholder="主题名" />
+          </el-form-item>
+          <el-form-item label="用户名">
+            <el-input v-model="taskForm.kafkaUsername" placeholder="可选" />
+          </el-form-item>
+          <el-form-item label="密码">
+            <el-input v-model="taskForm.kafkaPassword" type="password" show-password placeholder="可选" />
+          </el-form-item>
+          <el-form-item label="CA 证书">
+            <el-input v-model="taskForm.kafkaSslCafile" placeholder="服务端 CA 证书路径" style="max-width: 360px">
+              <template #append>
+                <el-upload :show-file-list="false" :before-upload="(f) => { uploadCert(f, 'kafkaSslCafile'); return false }" accept=".pem,.crt,.cer">
+                  <el-button type="primary">上传</el-button>
+                </el-upload>
+              </template>
+            </el-input>
+          </el-form-item>
+          <el-form-item label="客户端证书">
+            <el-input v-model="taskForm.kafkaSslCertfile" placeholder="客户端证书路径" style="max-width: 360px">
+              <template #append>
+                <el-upload :show-file-list="false" :before-upload="(f) => { uploadCert(f, 'kafkaSslCertfile'); return false }" accept=".pem,.crt,.cer">
+                  <el-button type="primary">上传</el-button>
+                </el-upload>
+              </template>
+            </el-input>
+          </el-form-item>
+          <el-form-item label="客户端私钥">
+            <el-input v-model="taskForm.kafkaSslKeyfile" placeholder="客户端私钥路径" style="max-width: 360px">
+              <template #append>
+                <el-upload :show-file-list="false" :before-upload="(f) => { uploadCert(f, 'kafkaSslKeyfile'); return false }" accept=".pem,.key">
+                  <el-button type="primary">上传</el-button>
+                </el-upload>
+              </template>
+            </el-input>
+          </el-form-item>
+        </template>
+        <template v-else>
+          <el-divider content-position="left">ClickHouse 连接配置</el-divider>
+          <el-form-item label="Host" required>
+            <el-input v-model="taskForm.chHost" placeholder="如 localhost" />
+          </el-form-item>
+          <el-form-item label="Port" required>
+            <el-input-number v-model="taskForm.chPort" :min="1" :max="65535" />
+          </el-form-item>
+          <el-form-item label="用户">
+            <el-input v-model="taskForm.chUser" placeholder="默认 default" />
+          </el-form-item>
+          <el-form-item label="密码">
+            <el-input v-model="taskForm.chPassword" type="password" show-password placeholder="可选" />
+          </el-form-item>
+        </template>
         <el-form-item v-if="taskForm.task_type === 'kafka'" label="消息模板(JSON)">
           <el-input v-model="taskForm.template_content" type="textarea" :rows="12" placeholder='可变字段用 {param} 包裹，如 {"id":{id},"time":{now}}' />
           <el-button type="primary" link @click="parseTemplateParams">识别可变参数</el-button>
@@ -176,8 +227,11 @@ const checkResult = ref(null)
 const taskDialogVisible = ref(false)
 const editingTask = ref(null)
 const taskForm = ref({
-  name: '', task_type: 'kafka', cron_expr: '', batch_size: 1, agent_id: null,
-  template_content: '', connectorKafkaStr: '', connectorClickHouseStr: ''
+  name: '', task_type: 'kafka', cron_expr: '* * * * *', batch_size: 1, agent_id: null,
+  template_content: '',
+  kafkaBootstrap: '', kafkaTopic: '', kafkaUsername: '', kafkaPassword: '',
+  kafkaSslCafile: '', kafkaSslCertfile: '', kafkaSslKeyfile: '',
+  chHost: 'localhost', chPort: 9000, chUser: 'default', chPassword: ''
 })
 const templateParams = ref([])
 const paramConfigList = ref([])
@@ -230,11 +284,14 @@ function deleteAgent(row) {
 function showTaskDialog(row) {
   editingTask.value = row || null
   if (row) {
+    const k = row.connector_config?.kafka || {}
+    const c = row.connector_config?.clickhouse || {}
     taskForm.value = {
       name: row.name, task_type: row.task_type, cron_expr: row.cron_expr, batch_size: row.batch_size, agent_id: row.agent_id,
       template_content: row.template_content,
-      connectorKafkaStr: row.connector_config?.kafka ? JSON.stringify({ kafka: row.connector_config.kafka }, null, 2) : '',
-      connectorClickHouseStr: row.connector_config?.clickhouse ? JSON.stringify({ clickhouse: row.connector_config.clickhouse }, null, 2) : ''
+      kafkaBootstrap: k.bootstrap_servers || '', kafkaTopic: k.topic || '', kafkaUsername: k.username || '', kafkaPassword: k.password || '',
+      kafkaSslCafile: k.ssl_cafile || '', kafkaSslCertfile: k.ssl_certfile || '', kafkaSslKeyfile: k.ssl_keyfile || '',
+      chHost: c.host || 'localhost', chPort: c.port ?? 9000, chUser: c.user || 'default', chPassword: c.password || ''
     }
     templateParams.value = []
     paramConfigList.value = []
@@ -243,11 +300,33 @@ function showTaskDialog(row) {
       paramConfigList.value = row.param_config
     }
   } else {
-    taskForm.value = { name: '', task_type: 'kafka', cron_expr: '0 * * * * ?', batch_size: 1, agent_id: null, template_content: '', connectorKafkaStr: '', connectorClickHouseStr: '' }
+    taskForm.value = {
+      name: '', task_type: 'kafka', cron_expr: '* * * * *', batch_size: 1, agent_id: null, template_content: '',
+      kafkaBootstrap: '', kafkaTopic: '', kafkaUsername: '', kafkaPassword: '',
+      kafkaSslCafile: '', kafkaSslCertfile: '', kafkaSslKeyfile: '',
+      chHost: 'localhost', chPort: 9000, chUser: 'default', chPassword: ''
+    }
     templateParams.value = []
     paramConfigList.value = []
   }
   taskDialogVisible.value = true
+}
+
+async function uploadCert(file, fieldName) {
+  const formData = new FormData()
+  formData.append('file', file)
+  try {
+    const r = await api.post('/upload/cert', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
+    if (r.success && r.data && r.data.path) {
+      taskForm.value[fieldName] = r.data.path
+      ElMessage.success('上传成功')
+    } else {
+      ElMessage.error(r.error || '上传失败')
+    }
+  } catch (e) {
+    ElMessage.error(e.response?.data?.error || e.message || '上传失败')
+  }
+  return false
 }
 
 function parseTemplateParams() {
@@ -265,15 +344,32 @@ function parseTemplateParams() {
 
 function submitTask() {
   let connector_config = {}
-  if (taskForm.value.task_type === 'kafka' && taskForm.value.connectorKafkaStr.trim()) {
-    try { connector_config = JSON.parse(taskForm.value.connectorKafkaStr) } catch (e) { ElMessage.error('连接配置不是合法 JSON'); return }
-  } else if (taskForm.value.task_type === 'clickhouse' && taskForm.value.connectorClickHouseStr.trim()) {
-    try { connector_config = JSON.parse(taskForm.value.connectorClickHouseStr) } catch (e) { ElMessage.error('连接配置不是合法 JSON'); return }
+  if (taskForm.value.task_type === 'kafka') {
+    if (!taskForm.value.kafkaBootstrap?.trim() || !taskForm.value.kafkaTopic?.trim()) {
+      ElMessage.error('请填写 Kafka Bootstrap 和 Topic')
+      return
+    }
+    connector_config.kafka = {
+      bootstrap_servers: taskForm.value.kafkaBootstrap.trim(),
+      topic: taskForm.value.kafkaTopic.trim(),
+      username: taskForm.value.kafkaUsername?.trim() || undefined,
+      password: taskForm.value.kafkaPassword?.trim() || undefined,
+      ssl_cafile: taskForm.value.kafkaSslCafile?.trim() || undefined,
+      ssl_certfile: taskForm.value.kafkaSslCertfile?.trim() || undefined,
+      ssl_keyfile: taskForm.value.kafkaSslKeyfile?.trim() || undefined
+    }
+  } else {
+    connector_config.clickhouse = {
+      host: taskForm.value.chHost?.trim() || 'localhost',
+      port: taskForm.value.chPort ?? 9000,
+      user: taskForm.value.chUser?.trim() || 'default',
+      password: taskForm.value.chPassword?.trim() || undefined
+    }
   }
   const payload = {
     name: taskForm.value.name, task_type: taskForm.value.task_type, cron_expr: taskForm.value.cron_expr,
     batch_size: taskForm.value.batch_size, agent_id: taskForm.value.agent_id, template_content: taskForm.value.template_content,
-    param_config: paramConfigList.value.length ? paramConfigList.value : null, connector_config: Object.keys(connector_config).length ? connector_config : null
+    param_config: paramConfigList.value.length ? paramConfigList.value : null, connector_config
   }
   const p = editingTask.value ? api.put(`/data-tasks/${editingTask.value.id}`, payload) : api.post('/data-tasks', payload)
   p.then(r => { if (r.success) { ElMessage.success('保存成功'); taskDialogVisible.value = false; loadTasks() } else ElMessage.error(r.error || '失败') }).catch(e => ElMessage.error(e.response?.data?.error || e.message))
