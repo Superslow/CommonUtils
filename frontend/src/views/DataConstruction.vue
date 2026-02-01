@@ -118,34 +118,33 @@
           <el-form-item label="Topic" required>
             <el-input v-model="taskForm.kafkaTopic" placeholder="主题名" />
           </el-form-item>
-          <el-form-item label="用户名">
-            <el-input v-model="taskForm.kafkaUsername" placeholder="可选" />
+          <el-form-item label="安全协议" required>
+            <el-select v-model="taskForm.kafkaSecurityProtocol" placeholder="选择协议" style="width: 100%">
+              <el-option label="PLAINTEXT" value="PLAINTEXT" />
+              <el-option label="SASL_PLAINTEXT" value="SASL_PLAINTEXT" />
+              <el-option label="SASL_SSL" value="SASL_SSL" />
+              <el-option label="SSL" value="SSL" />
+            </el-select>
           </el-form-item>
-          <el-form-item label="密码">
-            <el-input v-model="taskForm.kafkaPassword" type="password" show-password placeholder="可选" />
-          </el-form-item>
-          <el-form-item label="CA 证书">
-            <el-input v-model="taskForm.kafkaSslCafile" placeholder="服务端 CA 证书路径" style="max-width: 360px">
+          <template v-if="taskForm.kafkaSecurityProtocol && taskForm.kafkaSecurityProtocol.startsWith('SASL')">
+            <el-form-item label="SASL 用户名">
+              <el-input v-model="taskForm.kafkaUsername" placeholder="SASL 认证用户名" />
+            </el-form-item>
+            <el-form-item label="SASL 密码">
+              <el-input v-model="taskForm.kafkaPassword" type="password" show-password placeholder="SASL 认证密码" />
+            </el-form-item>
+            <el-form-item label="SASL 机制">
+              <el-select v-model="taskForm.kafkaSaslMechanism" placeholder="默认 PLAIN" style="width: 100%">
+                <el-option label="PLAIN" value="PLAIN" />
+                <el-option label="SCRAM-SHA-256" value="SCRAM-SHA-256" />
+                <el-option label="SCRAM-SHA-512" value="SCRAM-SHA-512" />
+              </el-select>
+            </el-form-item>
+          </template>
+          <el-form-item v-if="taskForm.kafkaSecurityProtocol === 'SSL' || taskForm.kafkaSecurityProtocol === 'SASL_SSL'" label="SSL CA 证书">
+            <el-input v-model="taskForm.kafkaSslCafile" placeholder="CA 证书（验证服务端，通常仅需此证书）" style="max-width: 360px">
               <template #append>
                 <el-upload :show-file-list="false" :before-upload="(f) => { uploadCert(f, 'kafkaSslCafile'); return false }" accept=".pem,.crt,.cer">
-                  <el-button type="primary">上传</el-button>
-                </el-upload>
-              </template>
-            </el-input>
-          </el-form-item>
-          <el-form-item label="客户端证书">
-            <el-input v-model="taskForm.kafkaSslCertfile" placeholder="客户端证书路径" style="max-width: 360px">
-              <template #append>
-                <el-upload :show-file-list="false" :before-upload="(f) => { uploadCert(f, 'kafkaSslCertfile'); return false }" accept=".pem,.crt,.cer">
-                  <el-button type="primary">上传</el-button>
-                </el-upload>
-              </template>
-            </el-input>
-          </el-form-item>
-          <el-form-item label="客户端私钥">
-            <el-input v-model="taskForm.kafkaSslKeyfile" placeholder="客户端私钥路径" style="max-width: 360px">
-              <template #append>
-                <el-upload :show-file-list="false" :before-upload="(f) => { uploadCert(f, 'kafkaSslKeyfile'); return false }" accept=".pem,.key">
                   <el-button type="primary">上传</el-button>
                 </el-upload>
               </template>
@@ -235,8 +234,9 @@ const editingTask = ref(null)
 const taskForm = ref({
   name: '', task_type: 'kafka', cron_expr: '* * * * *', batch_size: 1, agent_id: null,
   template_content: '',
-  kafkaBootstrap: '', kafkaTopic: '', kafkaUsername: '', kafkaPassword: '',
-  kafkaSslCafile: '', kafkaSslCertfile: '', kafkaSslKeyfile: '',
+  kafkaBootstrap: '', kafkaTopic: '', kafkaSecurityProtocol: 'PLAINTEXT',
+  kafkaUsername: '', kafkaPassword: '', kafkaSaslMechanism: 'PLAIN',
+  kafkaSslCafile: '',
   chHost: 'localhost', chPort: 9000, chUser: 'default', chPassword: ''
 })
 const templateParams = ref([])
@@ -338,8 +338,10 @@ function showTaskDialog(row) {
     taskForm.value = {
       name: row.name, task_type: row.task_type, cron_expr: row.cron_expr, batch_size: row.batch_size, agent_id: row.agent_id,
       template_content: row.template_content,
-      kafkaBootstrap: k.bootstrap_servers || '', kafkaTopic: k.topic || '', kafkaUsername: k.username || '', kafkaPassword: k.password || '',
-      kafkaSslCafile: k.ssl_cafile || '', kafkaSslCertfile: k.ssl_certfile || '', kafkaSslKeyfile: k.ssl_keyfile || '',
+      kafkaBootstrap: k.bootstrap_servers || '', kafkaTopic: k.topic || '',
+      kafkaSecurityProtocol: k.security_protocol || 'PLAINTEXT',
+      kafkaUsername: k.username || '', kafkaPassword: k.password || '', kafkaSaslMechanism: k.sasl_mechanism || 'PLAIN',
+      kafkaSslCafile: k.ssl_cafile || '',
       chHost: c.host || 'localhost', chPort: c.port ?? 9000, chUser: c.user || 'default', chPassword: c.password || ''
     }
     templateParams.value = []
@@ -351,8 +353,9 @@ function showTaskDialog(row) {
   } else {
     taskForm.value = {
       name: '', task_type: 'kafka', cron_expr: '* * * * *', batch_size: 1, agent_id: null, template_content: '',
-      kafkaBootstrap: '', kafkaTopic: '', kafkaUsername: '', kafkaPassword: '',
-      kafkaSslCafile: '', kafkaSslCertfile: '', kafkaSslKeyfile: '',
+      kafkaBootstrap: '', kafkaTopic: '', kafkaSecurityProtocol: 'PLAINTEXT',
+      kafkaUsername: '', kafkaPassword: '', kafkaSaslMechanism: 'PLAIN',
+      kafkaSslCafile: '',
       chHost: 'localhost', chPort: 9000, chUser: 'default', chPassword: ''
     }
     templateParams.value = []
@@ -405,11 +408,11 @@ function submitTask() {
     connector_config.kafka = {
       bootstrap_servers: taskForm.value.kafkaBootstrap.trim(),
       topic: taskForm.value.kafkaTopic.trim(),
+      security_protocol: taskForm.value.kafkaSecurityProtocol || 'PLAINTEXT',
       username: taskForm.value.kafkaUsername?.trim() || undefined,
       password: taskForm.value.kafkaPassword?.trim() || undefined,
-      ssl_cafile: taskForm.value.kafkaSslCafile?.trim() || undefined,
-      ssl_certfile: taskForm.value.kafkaSslCertfile?.trim() || undefined,
-      ssl_keyfile: taskForm.value.kafkaSslKeyfile?.trim() || undefined
+      sasl_mechanism: taskForm.value.kafkaSaslMechanism || 'PLAIN',
+      ssl_cafile: taskForm.value.kafkaSslCafile?.trim() || undefined
     }
   } else {
     connector_config.clickhouse = {

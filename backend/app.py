@@ -864,8 +864,10 @@ def list_data_tasks():
 
 
 @app.route('/api/data-tasks', methods=['POST'])
+@require_login
 def create_data_task():
     """创建数据构造任务"""
+    user = get_current_user()
     client_ip = get_client_ip()
     data = request.get_json()
     name = data.get('name')
@@ -1072,11 +1074,11 @@ def run_task_once(task_id):
                 'topic': conn_cfg.get('topic', ''),
                 'messages': messages,
                 'config': {
+                    'security_protocol': conn_cfg.get('security_protocol', 'PLAINTEXT'),
                     'username': conn_cfg.get('username'),
                     'password': conn_cfg.get('password'),
+                    'sasl_mechanism': conn_cfg.get('sasl_mechanism', 'PLAIN'),
                     'ssl_cafile': conn_cfg.get('ssl_cafile'),
-                    'ssl_certfile': conn_cfg.get('ssl_certfile'),
-                    'ssl_keyfile': conn_cfg.get('ssl_keyfile'),
                 }
             }
         else:
