@@ -5,6 +5,7 @@
 """
 import json
 import hashlib
+import traceback
 import platform
 import socket
 from functools import wraps
@@ -65,7 +66,12 @@ def execute():
             'executed_at': datetime.now().isoformat()
         })
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+        tb = traceback.format_exc()
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'traceback': tb
+        }), 500
 
 
 def execute_kafka(task_data, batch_no):

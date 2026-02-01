@@ -6,6 +6,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import json
 import time
+import traceback
 import hashlib
 import base64
 import ipaddress
@@ -1246,13 +1247,13 @@ def run_task_once(task_id):
                     (task_id, batch_no, 1, json.dumps(result), batch_size))
             conn.commit()
     except Exception as e:
+        err_msg = traceback.format_exc()
         try:
             with get_db() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
                         'INSERT INTO task_executions (task_id, batch_no, success, result_message) VALUES (%s,%s,%s,%s)',
-                        (task_id, batch_no, 0, str(e)))
-                conn.commit()
+                        (task_id, batch_no, 0, err_msg))
         except Exception:
             pass
 
