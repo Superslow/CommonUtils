@@ -4,12 +4,42 @@
       <h1 class="title">通用工具类集合</h1>
       <div class="header-right">
         <template v-if="authUser">
-          <span class="header-user">{{ authUser.username }}</span>
-          <el-tag v-if="authUser.is_admin" type="danger" size="small">管理员</el-tag>
-          <el-button type="primary" link @click="handleLogout">退出</el-button>
+          <el-dropdown trigger="click" @command="handleUserCommand">
+            <span class="header-user-dropdown">
+              {{ authUser.username }}
+              <el-tag v-if="authUser.is_admin" type="danger" size="small">管理员</el-tag>
+              <el-icon class="el-icon--right"><arrow-down /></el-icon>
+            </span>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="change-password">修改密码</el-dropdown-item>
+                <el-dropdown-item v-if="authUser.is_admin" command="user-management">用户管理</el-dropdown-item>
+                <el-dropdown-item divided command="logout">退出</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </template>
         <el-button v-else type="primary" link @click="goLogin">登录</el-button>
       </div>
+
+    <!-- 修改密码弹窗 -->
+    <el-dialog v-model="passwordDialogVisible" title="修改密码" width="400px" @close="resetPasswordForm">
+      <el-form :model="passwordForm" label-width="90px">
+        <el-form-item label="原密码" required>
+          <el-input v-model="passwordForm.old_password" type="password" placeholder="原密码" show-password />
+        </el-form-item>
+        <el-form-item label="新密码" required>
+          <el-input v-model="passwordForm.new_password" type="password" placeholder="至少 6 位" show-password />
+        </el-form-item>
+        <el-form-item label="确认新密码" required>
+          <el-input v-model="passwordForm.confirm_password" type="password" placeholder="再次输入新密码" show-password />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="passwordDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitChangePassword">确定</el-button>
+      </template>
+    </el-dialog>
     </el-header>
     <el-menu
       :default-active="activeMenu"
@@ -36,12 +66,16 @@
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import { ArrowDown } from '@element-plus/icons-vue'
 import api from './api'
 
 const route = useRoute()
 const router = useRouter()
 const activeMenu = computed(() => route.path || '/')
 const authUser = ref(null)
+const passwordDialogVisible = ref(false)
+const passwordForm = ref({ old_password: '', new_password: '', confirm_password: '' })
 
 function getToken() {
   try {
@@ -68,10 +102,51 @@ function goLogin() {
   router.push(redirect ? { path: '/login', query: { redirect } } : '/login')
 }
 
-function handleLogout() {
-  localStorage.removeItem('token')
-  authUser.value = null
-  router.push('/')
+function handleUserCommand(cmd) {
+  if (cmd === 'logout') {
+    localStorage.removeItem('token')
+    authUser.value = null
+    router.push('/')
+    return
+  }
+  if (cmd === 'change-password') {
+    passwordDialogVisible.value = true
+    return
+  }
+  if (cmd === 'user-management') {
+    router.push('/user-management')
+  }
+}
+
+function resetPasswordForm() {
+  passwordForm.value = { old_password: '', new_password: '', confirm_password: '' }
+}
+
+function submitChangePassword() {
+  const { old_password, new_password, confirm_password } = passwordForm.value
+  if (!old_password || !new_password) {
+    ElMessage.warning('请填写原密码和新密码')
+    return
+  }
+  if (new_password.length < 6) {
+    ElMessage.warning('新密码至少 6 位')
+    return
+  }
+  if (new_password !== confirm_password) {
+    ElMessage.warning('两次输入的新密码不一致')
+    return
+  }
+  api.post('/auth/change-password', { old_password, new_password })
+    .then(r => {
+      if (r.success) {
+        ElMessage.success('密码已修改')
+        passwordDialogVisible.value = false
+        resetPasswordForm()
+      } else {
+        ElMessage.error(r.error || '修改失败')
+      }
+    })
+    .catch(e => ElMessage.error(e.response?.data?.error || e.message || '修改失败'))
 }
 
 onMounted(loadAuthUser)
@@ -115,9 +190,16 @@ body {
   color: rgba(255, 255, 255, 0.95);
 }
 
-.header-user {
+.header-user-dropdown {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 14px;
-  margin-right: 4px;
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.95);
+}
+.header-user-dropdown .el-icon--right {
+  margin-left: 4px;
 }
 
 .app-menu {

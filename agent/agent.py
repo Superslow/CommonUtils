@@ -83,20 +83,18 @@ def execute_kafka(task_data, batch_no):
         'bootstrap_servers': bootstrap_servers.split(','),
         'value_serializer': lambda v: json.dumps(v).encode('utf-8') if isinstance(v, dict) else str(v).encode('utf-8')
     }
-    
+    security_protocol = config.get('security_protocol', 'PLAINTEXT')
+    producer_config['security_protocol'] = security_protocol
+
     if config.get('username') and config.get('password'):
-        producer_config['security_protocol'] = config.get('security_protocol', 'SASL_PLAINTEXT')
         producer_config['sasl_mechanism'] = config.get('sasl_mechanism', 'PLAIN')
         producer_config['sasl_plain_username'] = config['username']
         producer_config['sasl_plain_password'] = config['password']
-    
+
     if config.get('ssl_cafile'):
         producer_config['ssl_cafile'] = config['ssl_cafile']
-    if config.get('ssl_certfile'):
-        producer_config['ssl_certfile'] = config['ssl_certfile']
-    if config.get('ssl_keyfile'):
-        producer_config['ssl_keyfile'] = config['ssl_keyfile']
-    
+    # 仅 CA 证书即可验证服务端；若需双向认证再扩展 ssl_certfile/ssl_keyfile
+
     producer = KafkaProducer(**producer_config)
     sent_count = 0
     try:
