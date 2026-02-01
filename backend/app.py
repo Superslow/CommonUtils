@@ -19,6 +19,7 @@ import codecs
 import jwt
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from pymysql.err import IntegrityError
 from database.db import get_db, init_db, is_admin_ip
 from agent_client import check_agent, execute_on_agent
 from template_utils import extract_params, render_kafka_messages, render_clickhouse_sqls
@@ -1349,6 +1350,15 @@ def _run_task_at_scheduled_time(task_id, scheduled_time, schedule_key):
     try:
         run_task_once(task_id, scheduled_time=scheduled_time)
     finally:
+        try:
+            with get_db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        'DELETE FROM data_task_schedule_claims WHERE task_id = %s AND schedule_key_ts = %s',
+                        (task_id, schedule_key)
+                    )
+        except Exception:
+            pass
         with _scheduled_run_lock:
             if _scheduled_run_at.get(task_id) == schedule_key:
                 _scheduled_run_at.pop(task_id, None)
@@ -1357,8 +1367,21 @@ def _run_task_at_scheduled_time(task_id, scheduled_time, schedule_key):
 def scheduler_loop():
     """调度循环：按Cron执行运行中的任务；临近计划时间时起线程 sleep 到点再执行，实现毫秒级准时"""
     from croniter import croniter
+    loop_count = 0
     while True:
         try:
+            loop_count += 1
+            if loop_count >= 300:
+                loop_count = 0
+                try:
+                    with get_db() as conn:
+                        with conn.cursor() as cur:
+                            cur.execute(
+                                'DELETE FROM data_task_schedule_claims WHERE schedule_key_ts < %s',
+                                (int(datetime.now().timestamp()) - 3600,)
+                            )
+                except Exception:
+                    pass
             with get_db() as conn:
                 with conn.cursor() as cur:
                     cur.execute('SELECT id, cron_expr FROM data_tasks WHERE status = %s', ('running',))
@@ -1381,6 +1404,18 @@ def scheduler_loop():
                         if _scheduled_run_at.get(t['id']) == schedule_key:
                             continue
                         _scheduled_run_at[t['id']] = schedule_key
+                    try:
+                        with get_db() as conn:
+                            with conn.cursor() as cur:
+                                cur.execute(
+                                    'INSERT INTO data_task_schedule_claims (task_id, schedule_key_ts) VALUES (%s, %s)',
+                                    (t['id'], schedule_key)
+                                )
+                    except IntegrityError:
+                        with _scheduled_run_lock:
+                            if _scheduled_run_at.get(t['id']) == schedule_key:
+                                _scheduled_run_at.pop(t['id'], None)
+                        continue
                     threading.Thread(
                         target=_run_task_at_scheduled_time,
                         args=(t['id'], next_run, schedule_key),

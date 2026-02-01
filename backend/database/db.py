@@ -124,6 +124,20 @@ def migrate_db(conn=None):
                         INDEX idx_name (name)
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8
                 """)
+            cursor.execute(
+                "SELECT COUNT(*) AS n FROM information_schema.TABLES WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'data_task_schedule_claims'",
+                (MYSQL_DATABASE,)
+            )
+            if cursor.fetchone()['n'] == 0:
+                cursor.execute("""
+                    CREATE TABLE data_task_schedule_claims (
+                        task_id INT NOT NULL,
+                        schedule_key_ts BIGINT NOT NULL COMMENT '计划执行时间戳(秒)',
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY (task_id, schedule_key_ts),
+                        FOREIGN KEY (task_id) REFERENCES data_tasks(id) ON DELETE CASCADE
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8
+                """)
         conn.commit()
     finally:
         if close_conn:
