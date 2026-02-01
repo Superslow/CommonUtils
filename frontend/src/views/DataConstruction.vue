@@ -222,7 +222,7 @@
               v-model="p.value"
               :placeholder="paramPlaceholder(p.type)"
               :disabled="paramValueDisabled(p.type)"
-              style="margin-left:8px;flex:1"
+              class="param-value-input"
             />
             <span class="param-hint">{{ paramHint(p.type) }}</span>
           </div>
@@ -635,6 +635,11 @@ function clearExecutions() {
 .param-row .param-name {
   width: 100px;
   flex-shrink: 0;
+}
+.param-row .param-value-input {
+  margin-left: 8px;
+  flex: 1;
+  min-width: 320px;
 }
 .param-row .param-hint {
   margin-left: 8px;
