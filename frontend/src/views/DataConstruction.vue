@@ -39,7 +39,16 @@
           <el-table-column prop="batch_size" label="每批条数" width="90" />
           <el-table-column prop="agent_name" label="Agent" width="120" show-overflow-tooltip />
           <el-table-column v-if="currentUser?.is_admin" prop="creator_username" label="创建者" width="100" />
-          <el-table-column prop="status" label="状态" width="80" />
+          <el-table-column label="状态" width="140" min-width="140">
+            <template #default="{ row }">
+              <div class="status-cell">
+                <span>{{ row.status === 'running' ? '运行中' : row.status === 'stopped' ? '已停止' : '已暂停' }}</span>
+                <span v-if="row.status !== 'running' && row.stop_reason" class="stop-reason" :title="row.stop_reason">
+                  {{ row.stop_reason }}
+                </span>
+              </div>
+            </template>
+          </el-table-column>
           <el-table-column label="操作" width="340" min-width="340" fixed="right" align="left">
             <template #default="{ row }">
               <span class="op-cell">
@@ -545,6 +554,20 @@ function loadExecutions() {
 }
 .executions-toolbar {
   margin-bottom: 12px;
+}
+
+.status-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.status-cell .stop-reason {
+  font-size: 12px;
+  color: #f56c6c;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 1920 下表格单行展开，操作列不换行 */

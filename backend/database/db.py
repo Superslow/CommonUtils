@@ -102,6 +102,14 @@ def migrate_db(conn=None):
                         INDEX idx_config_key (config_key)
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8
                 """)
+            cursor.execute(
+                "SELECT COUNT(*) AS n FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'data_tasks' AND COLUMN_NAME = 'stop_reason'",
+                (MYSQL_DATABASE,)
+            )
+            if cursor.fetchone()['n'] == 0:
+                cursor.execute(
+                    "ALTER TABLE data_tasks ADD COLUMN stop_reason VARCHAR(255) NULL DEFAULT NULL COMMENT '自动停止原因，如连续失败超过3次' AFTER status"
+                )
         conn.commit()
     finally:
         if close_conn:

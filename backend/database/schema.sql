@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS data_tasks (
     name VARCHAR(100) NOT NULL COMMENT '任务名称',
     task_type ENUM('kafka', 'clickhouse') NOT NULL COMMENT '任务类型',
     status ENUM('running', 'stopped', 'paused') DEFAULT 'stopped',
+    stop_reason VARCHAR(255) NULL DEFAULT NULL COMMENT '自动停止原因，如连续失败超过3次',
     cron_expr VARCHAR(100) NOT NULL COMMENT 'Cron表达式',
     batch_size INT DEFAULT 1 COMMENT '每批数据条数',
     agent_id INT NOT NULL COMMENT '执行Agent',
