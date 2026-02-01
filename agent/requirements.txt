@@ -1,6 +1,5 @@
 Flask==3.0.0
 Flask-CORS==4.0.0
 requests==2.31.0
-# 需 >=2.0.3 以兼容 Python 3.7+（旧版使用 self.async 导致 SyntaxError）
 kafka-python>=2.0.3
 clickhouse-driver==0.2.6
