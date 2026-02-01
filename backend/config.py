@@ -48,3 +48,11 @@ CLIENT_IP_HEADER = os.getenv('CLIENT_IP_HEADER', '').strip() or None
 # 管理员IP：部署机器所在 IP（从本机或部署机 IP 访问可管理所有 Agent/任务）+ 数据库 admin_ips 表
 DEFAULT_ADMIN_IPS = ['127.0.0.1', '::1']
 DEPLOYMENT_IPS = get_deployment_ips()
+
+# 用户登录：预留管理员账号（首次启动时创建，若已存在则跳过）
+ADMIN_USERNAME = os.getenv('ADMIN_USERNAME', 'admin')
+ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD', 'admin123')
+
+# JWT 密钥（生产环境务必设置环境变量）
+JWT_SECRET = os.getenv('JWT_SECRET', 'common-utils-jwt-secret-change-in-production')
+JWT_EXPIRE_DAYS = int(os.getenv('JWT_EXPIRE_DAYS', '7'))

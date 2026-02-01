@@ -1,5 +1,15 @@
 -- CommonUtils 数据库表结构（兼容 MySQL 5.5.x，JSON 用 TEXT 存储）
--- 管理员IP列表（可修改/删除所有任务和Agent）
+-- 用户表（用户名+密码登录，预留管理员账号）
+CREATE TABLE IF NOT EXISTS users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(64) NOT NULL UNIQUE COMMENT '用户名',
+    password_hash VARCHAR(255) NOT NULL COMMENT '密码哈希',
+    is_admin TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否管理员',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_username (username)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
+-- 管理员IP列表（可修改/删除所有任务和Agent，可选保留）
 CREATE TABLE IF NOT EXISTS admin_ips (
     id INT AUTO_INCREMENT PRIMARY KEY,
     ip VARCHAR(45) NOT NULL UNIQUE,
@@ -13,13 +23,16 @@ CREATE TABLE IF NOT EXISTS agents (
     name VARCHAR(100) NOT NULL COMMENT 'Agent名称',
     url VARCHAR(500) NOT NULL COMMENT 'Agent服务地址',
     token VARCHAR(128) NOT NULL COMMENT '验证Token',
-    creator_ip VARCHAR(45) NOT NULL COMMENT '创建者IP',
+    creator_user_id INT NULL COMMENT '创建者用户ID',
+    creator_ip VARCHAR(45) NULL COMMENT '创建者IP（审计）',
     status ENUM('online', 'offline', 'unknown') DEFAULT 'unknown',
     last_check_at TIMESTAMP NULL DEFAULT NULL,
     kafka_config TEXT DEFAULT NULL COMMENT 'Kafka连接配置(可选，任务级也可配置)',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NULL DEFAULT NULL,
-    INDEX idx_creator_ip (creator_ip)
+    INDEX idx_creator_user_id (creator_user_id),
+    INDEX idx_creator_ip (creator_ip),
+    FOREIGN KEY (creator_user_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
 DROP TRIGGER IF EXISTS agents_before_update;
@@ -37,12 +50,15 @@ CREATE TABLE IF NOT EXISTS data_tasks (
     template_content TEXT NOT NULL COMMENT '模板内容(JSON或SQL)',
     param_config TEXT DEFAULT NULL COMMENT '参数配置[{param, type, value}]',
     connector_config TEXT DEFAULT NULL COMMENT '连接器配置(Kafka/ClickHouse)',
-    creator_ip VARCHAR(45) NOT NULL,
+    creator_user_id INT NULL COMMENT '创建者用户ID',
+    creator_ip VARCHAR(45) NULL COMMENT '创建者IP（审计）',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NULL DEFAULT NULL,
+    INDEX idx_creator_user_id (creator_user_id),
     INDEX idx_creator_ip (creator_ip),
     INDEX idx_status (status),
-    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE RESTRICT
+    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE RESTRICT,
+    FOREIGN KEY (creator_user_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
 DROP TRIGGER IF EXISTS data_tasks_before_update;

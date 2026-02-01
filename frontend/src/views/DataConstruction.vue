@@ -1,12 +1,16 @@
 <template>
   <div class="data-construction-page">
+    <div class="page-header">
+      <span class="user-info">{{ currentUser?.username || '—' }} <el-tag v-if="currentUser?.is_admin" type="danger" size="small">管理员</el-tag></span>
+      <el-button type="primary" link @click="logout">退出</el-button>
+    </div>
     <el-tabs v-model="activeTab">
       <el-tab-pane label="Agent 管理" name="agents">
         <el-button type="primary" @click="showAgentDialog()">新增 Agent</el-button>
         <el-table :data="agents" border style="width: 100%; margin-top: 16px;">
           <el-table-column prop="name" label="名称" width="120" />
           <el-table-column prop="url" label="URL" min-width="200" />
-          <el-table-column prop="creator_ip" label="创建者IP" width="140" />
+          <el-table-column v-if="currentUser?.is_admin" prop="creator_username" label="创建者" width="100" />
           <el-table-column prop="status" label="状态" width="80" />
           <el-table-column label="操作" width="180" fixed="right">
             <template #default="{ row }">
@@ -26,6 +30,7 @@
           <el-table-column prop="cron_expr" label="Cron" width="120" />
           <el-table-column prop="batch_size" label="每批条数" width="90" />
           <el-table-column prop="agent_name" label="Agent" width="120" />
+          <el-table-column v-if="currentUser?.is_admin" prop="creator_username" label="创建者" width="100" />
           <el-table-column prop="status" label="状态" width="80" />
           <el-table-column label="操作" width="260" fixed="right">
             <template #default="{ row }">
@@ -36,6 +41,18 @@
               <el-button v-if="row.is_owner" link type="danger" @click="deleteTask(row)">删除</el-button>
             </template>
           </el-table-column>
+        </el-table>
+      </el-tab-pane>
+      <el-tab-pane v-if="currentUser?.is_admin" label="用户管理" name="users">
+        <el-table :data="users" border style="width: 100%; margin-top: 16px;">
+          <el-table-column prop="id" label="ID" width="80" />
+          <el-table-column prop="username" label="用户名" width="140" />
+          <el-table-column prop="is_admin" label="管理员" width="90">
+            <template #default="{ row }">
+              <el-tag :type="row.is_admin ? 'danger' : 'info'">{{ row.is_admin ? '是' : '否' }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="created_at" label="注册时间" width="180" />
         </el-table>
       </el-tab-pane>
     </el-tabs>
@@ -80,23 +97,6 @@
       <el-alert v-if="checkResult !== null" :type="checkResult ? 'success' : 'error'" :title="checkResult ? 'Agent 可用' : 'Agent 不可用'" style="margin-top: 12px;" />
     </el-dialog>
 
-    <!-- 使用他人 Agent：校验 Token 弹窗 -->
-    <el-dialog v-model="verifyTokenDialogVisible" title="校验 Token 后使用该 Agent" width="440px" @close="verifyTokenForm.token = ''">
-      <p class="verify-tip">该 Agent 为他人添加，请输入该 Agent 的 Token 以验证后使用。</p>
-      <el-form label-width="80px">
-        <el-form-item label="URL">
-          <el-input :model-value="verifyTokenForm.url" readonly />
-        </el-form-item>
-        <el-form-item label="Token" required>
-          <el-input v-model="verifyTokenForm.token" type="password" placeholder="向该 Agent 创建者获取 Token" show-password />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="verifyTokenDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="doVerifyAndUseAgent" :disabled="!verifyTokenForm.token?.trim()">校验并允许使用</el-button>
-      </template>
-    </el-dialog>
-
     <!-- 任务弹窗 -->
     <el-dialog v-model="taskDialogVisible" :title="editingTask ? '编辑任务' : '新增任务'" width="900px">
       <el-form :model="taskForm" label-width="120px">
@@ -116,13 +116,9 @@
           <el-input-number v-model="taskForm.batch_size" :min="1" :max="1000" />
         </el-form-item>
         <el-form-item label="执行 Agent" required>
-          <el-select v-model="taskForm.agent_id" placeholder="选择 Agent（本人或管理员可直接使用；其他需校验 Token）" filterable style="width: 100%" @change="onTaskAgentChange">
-            <el-option v-for="a in agents" :key="a.id" :label="a.is_owner ? a.name + ' (可直接使用)' : a.name + ' (需校验 Token)'" :value="a.id" />
+          <el-select v-model="taskForm.agent_id" placeholder="选择 Agent" filterable style="width: 100%">
+            <el-option v-for="a in agents" :key="a.id" :label="a.name" :value="a.id" />
           </el-select>
-          <div v-if="taskForm.agent_id && selectedAgentNeedVerify" class="agent-verify-hint">
-            该 Agent 非您创建且您非管理员，使用前需校验 Token。
-            <el-button type="primary" link @click="showVerifyAgentTokenDialog">校验 Token 后使用</el-button>
-          </div>
         </el-form-item>
         <template v-if="taskForm.task_type === 'kafka'">
           <el-divider content-position="left">Kafka 连接配置</el-divider>
@@ -227,13 +223,17 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '../api'
 
+const router = useRouter()
 const activeTab = ref('agents')
+const currentUser = ref(null)
 const agents = ref([])
 const tasks = ref([])
+const users = ref([])
 const agentDialogVisible = ref(false)
 const editingAgent = ref(null)
 const agentForm = ref({ name: '', url: '', token: '', kafkaConfigStr: '' })
@@ -254,21 +254,26 @@ const paramConfigList = ref([])
 const executionsDialogVisible = ref(false)
 const executions = ref([])
 const currentTaskId = ref(null)
-const verifiedAgentIds = ref([])
-const verifyTokenDialogVisible = ref(false)
-const verifyTokenForm = ref({ agentId: null, url: '', token: '' })
 
-/** 当前选中的 Agent 是否需校验 Token 后才可使用（非本人且非管理员时需校验） */
-const selectedAgentNeedVerify = computed(() => {
-  if (!taskForm.value.agent_id) return false
-  const a = agents.value.find(x => x.id === taskForm.value.agent_id)
-  return a && !a.is_owner
-})
+function loadCurrentUser() {
+  api.get('/auth/me').then(r => { if (r.success) currentUser.value = r.data }).catch(() => { currentUser.value = null })
+}
+function logout() {
+  localStorage.removeItem('token')
+  currentUser.value = null
+  router.push('/login?redirect=/data-construction')
+}
 
 const loadAgents = () => api.get('/agents').then(r => { if (r.success) agents.value = r.data })
 const loadTasks = () => api.get('/data-tasks').then(r => { if (r.success) tasks.value = r.data })
+const loadUsers = () => api.get('/users').then(r => { if (r.success) users.value = r.data })
 
-watch(activeTab, (t) => { if (t === 'agents') loadAgents(); else if (t === 'tasks') loadTasks() }, { immediate: true })
+loadCurrentUser()
+watch(activeTab, (t) => {
+  if (t === 'agents') loadAgents()
+  else if (t === 'tasks') loadTasks()
+  else if (t === 'users') loadUsers()
+}, { immediate: true })
 
 function showAgentDialog(row) {
   editingAgent.value = row || null
@@ -309,34 +314,8 @@ function doCheckAgent() {
 
 function deleteAgent(row) {
   ElMessageBox.confirm('确定删除该 Agent？', '提示', { type: 'warning' }).then(() => {
-    api.delete(`/agents/${row.id}`).then(r => { if (r.success) { ElMessage.success('已删除'); loadAgents(); verifiedAgentIds.value = verifiedAgentIds.value.filter(id => id !== row.id) } else ElMessage.error(r.error) })
+    api.delete(`/agents/${row.id}`).then(r => { if (r.success) { ElMessage.success('已删除'); loadAgents() } else ElMessage.error(r.error) })
   }).catch(() => {})
-}
-
-function onTaskAgentChange() {
-  // 选择变化时无需额外处理，仅用于触发 selectedAgentNotOwner 显示
-}
-
-function showVerifyAgentTokenDialog() {
-  const a = agents.value.find(x => x.id === taskForm.value.agent_id)
-  if (!a || a.is_owner) return
-  verifyTokenForm.value = { agentId: a.id, url: a.url, token: '' }
-  verifyTokenDialogVisible.value = true
-}
-
-function doVerifyAndUseAgent() {
-  const url = verifyTokenForm.value.url
-  const token = (verifyTokenForm.value.token || '').trim()
-  if (!token) { ElMessage.warning('请输入 Token'); return }
-  api.post('/agents/check', { url, token }).then(r => {
-    if (r.success && r.data && r.data.available) {
-      verifiedAgentIds.value = [...new Set([...verifiedAgentIds.value, verifyTokenForm.value.agentId])]
-      ElMessage.success('校验通过，可使用该 Agent')
-      verifyTokenDialogVisible.value = false
-    } else {
-      ElMessage.error('Token 错误或 Agent 不可用')
-    }
-  }).catch(e => { ElMessage.error(e.response?.data?.error || e.message || '校验失败') })
 }
 
 function showTaskDialog(row) {
@@ -401,10 +380,8 @@ function parseTemplateParams() {
 }
 
 function submitTask() {
-  const aid = taskForm.value.agent_id
-  const agent = agents.value.find(a => a.id === aid)
-  if (agent && !agent.is_owner && !verifiedAgentIds.value.includes(aid)) {
-    ElMessage.error('该 Agent 非您创建且您非管理员，请先点击「校验 Token 后使用」并校验通过后再提交')
+  if (!taskForm.value.agent_id) {
+    ElMessage.warning('请选择执行 Agent')
     return
   }
   let connector_config = {}
@@ -465,15 +442,16 @@ function showExecutions(row) {
   margin: 0 auto;
 }
 
-.agent-verify-hint {
-  margin-top: 8px;
-  font-size: 13px;
-  color: #909399;
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-bottom: 16px;
 }
 
-.verify-tip {
-  margin-bottom: 16px;
-  color: #606266;
+.user-info {
   font-size: 14px;
+  color: #606266;
 }
 </style>

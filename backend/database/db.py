@@ -7,7 +7,12 @@ from contextlib import contextmanager
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DATABASE, DEFAULT_ADMIN_IPS, DEPLOYMENT_IPS
+from config import (
+    MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DATABASE,
+    DEFAULT_ADMIN_IPS, DEPLOYMENT_IPS,
+    ADMIN_USERNAME, ADMIN_PASSWORD,
+)
+from werkzeug.security import generate_password_hash, check_password_hash
 
 _pool = None
 
@@ -50,10 +55,65 @@ def init_db():
             for stmt in schema.split(';'):
                 stmt = stmt.strip()
                 if stmt and not stmt.startswith('--'):
-                    cursor.execute(stmt)
+                    try:
+                        cursor.execute(stmt)
+                    except pymysql.err.OperationalError as e:
+                        if e.args[0] != 1050:  # table already exists
+                            raise
         conn.commit()
+        migrate_db(conn)
+        ensure_admin_user(conn)
     finally:
         conn.close()
+
+
+def migrate_db(conn=None):
+    """为已有表添加 creator_user_id 等列（若不存在）"""
+    close_conn = conn is None
+    if conn is None:
+        conn = get_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT COUNT(*) AS n FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'agents' AND COLUMN_NAME = 'creator_user_id'",
+                (MYSQL_DATABASE,)
+            )
+            if cursor.fetchone()['n'] == 0:
+                cursor.execute('ALTER TABLE agents ADD COLUMN creator_user_id INT NULL COMMENT "创建者用户ID" AFTER token')
+                cursor.execute("ALTER TABLE agents MODIFY COLUMN creator_ip VARCHAR(45) NULL COMMENT '创建者IP（审计）'")
+            cursor.execute(
+                "SELECT COUNT(*) AS n FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'data_tasks' AND COLUMN_NAME = 'creator_user_id'",
+                (MYSQL_DATABASE,)
+            )
+            if cursor.fetchone()['n'] == 0:
+                cursor.execute('ALTER TABLE data_tasks ADD COLUMN creator_user_id INT NULL COMMENT "创建者用户ID" AFTER connector_config')
+                cursor.execute("ALTER TABLE data_tasks MODIFY COLUMN creator_ip VARCHAR(45) NULL COMMENT '创建者IP（审计）'")
+        conn.commit()
+    finally:
+        if close_conn:
+            conn.close()
+
+
+def ensure_admin_user(conn=None):
+    """确保预留管理员账号存在"""
+    close_conn = conn is None
+    if conn is None:
+        conn = get_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute('SELECT id, password_hash FROM users WHERE username = %s', (ADMIN_USERNAME,))
+            row = cursor.fetchone()
+            if row:
+                return
+            pw_hash = generate_password_hash(ADMIN_PASSWORD, method='pbkdf2:sha256')
+            cursor.execute(
+                'INSERT INTO users (username, password_hash, is_admin) VALUES (%s, %s, 1)',
+                (ADMIN_USERNAME, pw_hash)
+            )
+        conn.commit()
+    finally:
+        if close_conn:
+            conn.close()
 
 
 def is_admin_ip(ip, conn=None):
