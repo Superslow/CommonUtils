@@ -27,9 +27,6 @@
           <el-table-column prop="batch_size" label="每批条数" width="90" />
           <el-table-column prop="agent_name" label="Agent" width="120" />
           <el-table-column prop="status" label="状态" width="80" />
-          <el-table-column prop="is_owner" label="是否本人" width="90">
-            <template #default="{ row }">{{ row.is_owner ? '是' : '否' }}</template>
-          </el-table-column>
           <el-table-column label="操作" width="260" fixed="right">
             <template #default="{ row }">
               <el-button v-if="row.is_owner" link type="success" @click="startTask(row)" :disabled="row.status === 'running'">启动</el-button>
@@ -119,11 +116,11 @@
           <el-input-number v-model="taskForm.batch_size" :min="1" :max="1000" />
         </el-form-item>
         <el-form-item label="执行 Agent" required>
-          <el-select v-model="taskForm.agent_id" placeholder="选择 Agent（本人可直接选；他人需校验 Token 后使用）" filterable style="width: 100%" @change="onTaskAgentChange">
-            <el-option v-for="a in agents" :key="a.id" :label="a.is_owner ? a.name + ' (本人)' : a.name + ' (他人，需校验 Token)'" :value="a.id" />
+          <el-select v-model="taskForm.agent_id" placeholder="选择 Agent（本人或管理员可直接使用；其他需校验 Token）" filterable style="width: 100%" @change="onTaskAgentChange">
+            <el-option v-for="a in agents" :key="a.id" :label="a.is_owner ? a.name + ' (可直接使用)' : a.name + ' (需校验 Token)'" :value="a.id" />
           </el-select>
-          <div v-if="taskForm.agent_id && selectedAgentNotOwner" class="agent-verify-hint">
-            该 Agent 为他人添加，使用前需校验 Token。
+          <div v-if="taskForm.agent_id && selectedAgentNeedVerify" class="agent-verify-hint">
+            该 Agent 非您创建且您非管理员，使用前需校验 Token。
             <el-button type="primary" link @click="showVerifyAgentTokenDialog">校验 Token 后使用</el-button>
           </div>
         </el-form-item>
@@ -261,7 +258,8 @@ const verifiedAgentIds = ref([])
 const verifyTokenDialogVisible = ref(false)
 const verifyTokenForm = ref({ agentId: null, url: '', token: '' })
 
-const selectedAgentNotOwner = computed(() => {
+/** 当前选中的 Agent 是否需校验 Token 后才可使用（非本人且非管理员时需校验） */
+const selectedAgentNeedVerify = computed(() => {
   if (!taskForm.value.agent_id) return false
   const a = agents.value.find(x => x.id === taskForm.value.agent_id)
   return a && !a.is_owner
@@ -406,7 +404,7 @@ function submitTask() {
   const aid = taskForm.value.agent_id
   const agent = agents.value.find(a => a.id === aid)
   if (agent && !agent.is_owner && !verifiedAgentIds.value.includes(aid)) {
-    ElMessage.error('该 Agent 为他人添加，请先点击「校验 Token 后使用」并校验通过后再提交')
+    ElMessage.error('该 Agent 非您创建且您非管理员，请先点击「校验 Token 后使用」并校验通过后再提交')
     return
   }
   let connector_config = {}
