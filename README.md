@@ -1,4 +1,4 @@
-# CommonUtils - 通用工具类集合
+# CommonUtils - 通用工具集合
 
 一个基于 Python Flask 后端和 Vue 3 前端的通用工具类 Web 应用，提供多种实用工具功能，支持用户登录与管理员配置。
 

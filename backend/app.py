@@ -1072,6 +1072,24 @@ def update_data_task(tid):
             template_content = data.get('template_content', task['template_content'])
             param_config = data.get('param_config', task.get('param_config'))
             connector_config = data.get('connector_config', task.get('connector_config'))
+            if connector_config and isinstance(connector_config, dict):
+                existing_cc = task.get('connector_config')
+                if isinstance(existing_cc, str) and existing_cc:
+                    try:
+                        existing_cc = json.loads(existing_cc) or {}
+                    except Exception:
+                        existing_cc = {}
+                elif not isinstance(existing_cc, dict):
+                    existing_cc = {}
+                existing_ch = (existing_cc or {}).get('clickhouse') or {}
+                new_ch = connector_config.get('clickhouse') or {}
+                new_password = new_ch.get('password')
+                if new_ch and (new_password is None or (isinstance(new_password, str) and new_password.strip() == '')):
+                    old_password = existing_ch.get('password')
+                    if old_password is not None or (isinstance(old_password, str) and old_password.strip() != ''):
+                        if 'clickhouse' not in connector_config:
+                            connector_config['clickhouse'] = {}
+                        connector_config['clickhouse']['password'] = old_password if old_password is not None else ''
             with conn.cursor() as cur:
                 cur.execute('''
                     UPDATE data_tasks SET name=%s, cron_expr=%s, batch_size=%s, agent_id=%s,
@@ -1264,11 +1282,16 @@ def run_task_once(task_id):
                 json.loads(template_content) if isinstance(template_content, str) and template_content.startswith('[') else template_content,
                 param_config, batch_size, batch_no)
             conn_cfg = connector_config.get('clickhouse') or {}
+            ch_user = conn_cfg.get('user')
+            ch_password = conn_cfg.get('password')
             task_data = {
                 'host': conn_cfg.get('host', 'localhost'),
                 'port': conn_cfg.get('port', 9000),
                 'sqls': sqls,
-                'config': {'user': conn_cfg.get('user', 'default'), 'password': conn_cfg.get('password', '')}
+                'config': {
+                    'user': (ch_user or 'default') if ch_user is not None else 'default',
+                    'password': ch_password if ch_password is not None else ''
+                }
             }
         result = execute_on_agent(agent['url'], agent['token'], task_type, task_data, batch_no)
         with get_db() as conn:

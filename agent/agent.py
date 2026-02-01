@@ -192,11 +192,19 @@ def execute_clickhouse(task_data, batch_no):
     if not sqls:
         raise ValueError('Missing sqls')
     
+    user = config.get('user')
+    password = config.get('password')
+    if user is None:
+        user = 'default'
+    if password is None:
+        password = ''
+    user = str(user).strip() or 'default'
+    password = str(password)
     client = Client(
         host=host,
         port=port,
-        user=config.get('user', 'default'),
-        password=config.get('password', '')
+        user=user,
+        password=password
     )
     
     executed = 0
