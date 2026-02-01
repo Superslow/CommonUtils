@@ -11,13 +11,22 @@ import base64
 import ipaddress
 import os
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
+from functools import wraps
 from croniter import croniter
 import codecs
+import jwt
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from database.db import get_db, init_db, is_admin_ip
 from agent_client import check_agent, execute_on_agent
 from template_utils import extract_params, render_kafka_messages, render_clickhouse_sqls
+
+try:
+    from config import JWT_SECRET, JWT_EXPIRE_DAYS
+except ImportError:
+    JWT_SECRET = 'common-utils-jwt-secret'
+    JWT_EXPIRE_DAYS = 7
 
 app = Flask(__name__)
 CORS(app)
@@ -30,8 +39,7 @@ _task_stop_flags = {}
 
 
 def get_client_ip():
-    """获取客户端真实 IP（用于权限校验：仅创建者本人或管理员可修改/删除）。
-    若配置了 CLIENT_IP_HEADER（如 X-Forwarded-For），优先从该头取 IP，否则反向代理下会误判为同一 IP。"""
+    """获取客户端真实 IP（用于审计等）。"""
     try:
         from config import CLIENT_IP_HEADER
         if CLIENT_IP_HEADER:
@@ -44,26 +52,153 @@ def get_client_ip():
     return raw.split(',')[0].strip() or '127.0.0.1'
 
 
-def can_modify_agent(agent, client_ip):
-    """是否允许修改/删除该 Agent：仅当当前请求 IP 为创建者或管理员时允许"""
-    if not client_ip:
-        return False
-    client_ip = str(client_ip).strip()
-    if is_admin_ip(client_ip):
-        return True
-    creator_ip = str(agent.get('creator_ip') or '').strip()
-    return creator_ip == client_ip
+def get_current_user():
+    """从 Authorization: Bearer <token> 解析出当前用户，无效或缺失返回 None"""
+    auth = request.headers.get('Authorization')
+    if not auth or not auth.startswith('Bearer '):
+        return None
+    token = auth[7:].strip()
+    if not token:
+        return None
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
+        uid = payload.get('user_id')
+        if not uid:
+            return None
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT id, username, is_admin FROM users WHERE id = %s', (uid,))
+                row = cur.fetchone()
+        if not row:
+            return None
+        return {'id': row['id'], 'username': row['username'], 'is_admin': bool(row.get('is_admin'))}
+    except (jwt.InvalidTokenError, jwt.ExpiredSignatureError):
+        return None
 
 
-def can_modify_task(task, client_ip):
-    """是否允许修改/删除该任务：仅当当前请求 IP 为创建者或管理员时允许"""
-    if not client_ip:
+def require_login(f):
+    """数据构造相关接口必须登录，未登录返回 401"""
+    @wraps(f)
+    def wrapped(*args, **kwargs):
+        user = get_current_user()
+        if not user:
+            return jsonify({'error': '未登录或登录已过期', 'code': 'UNAUTHORIZED'}), 401
+        return f(*args, **kwargs)
+    return wrapped
+
+
+def can_modify_agent(agent, current_user):
+    """是否允许修改/删除该 Agent：仅创建者或管理员"""
+    if not current_user:
         return False
-    client_ip = str(client_ip).strip()
-    if is_admin_ip(client_ip):
+    if current_user.get('is_admin'):
         return True
-    creator_ip = str(task.get('creator_ip') or '').strip()
-    return creator_ip == client_ip
+    cid = agent.get('creator_user_id')
+    return cid is not None and cid == current_user['id']
+
+
+def can_modify_task(task, current_user):
+    """是否允许修改/删除该任务：仅创建者或管理员"""
+    if not current_user:
+        return False
+    if current_user.get('is_admin'):
+        return True
+    cid = task.get('creator_user_id')
+    return cid is not None and cid == current_user['id']
+
+
+def _make_token(user_id):
+    return jwt.encode(
+        {'user_id': user_id, 'exp': datetime.utcnow() + timedelta(days=JWT_EXPIRE_DAYS)},
+        JWT_SECRET, algorithm='HS256'
+    )
+
+
+# ---------- 认证 ----------
+@app.route('/api/auth/register', methods=['POST'])
+def auth_register():
+    """用户注册（用户名+密码）"""
+    data = request.get_json() or {}
+    username = (data.get('username') or '').strip()
+    password = data.get('password') or ''
+    if not username or len(username) < 2:
+        return jsonify({'error': '用户名至少 2 个字符'}), 400
+    if not password or len(password) < 6:
+        return jsonify({'error': '密码至少 6 位'}), 400
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT id FROM users WHERE username = %s', (username,))
+                if cur.fetchone():
+                    return jsonify({'error': '用户名已存在'}), 400
+                pw_hash = generate_password_hash(password, method='pbkdf2:sha256')
+                cur.execute('INSERT INTO users (username, password_hash, is_admin) VALUES (%s, %s, 0)', (username, pw_hash))
+                user_id = cur.lastrowid
+        token = _make_token(user_id)
+        return jsonify({
+            'success': True,
+            'data': {'token': token, 'user': {'id': user_id, 'username': username, 'is_admin': False}}
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/auth/login', methods=['POST'])
+def auth_login():
+    """用户登录（用户名+密码）"""
+    data = request.get_json() or {}
+    username = (data.get('username') or '').strip()
+    password = data.get('password') or ''
+    if not username or not password:
+        return jsonify({'error': '请输入用户名和密码'}), 400
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT id, username, password_hash, is_admin FROM users WHERE username = %s', (username,))
+                row = cur.fetchone()
+        if not row or not check_password_hash(row['password_hash'], password):
+            return jsonify({'error': '用户名或密码错误'}), 401
+        token = _make_token(row['id'])
+        return jsonify({
+            'success': True,
+            'data': {
+                'token': token,
+                'user': {'id': row['id'], 'username': row['username'], 'is_admin': bool(row.get('is_admin'))}
+            }
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/auth/me', methods=['GET'])
+def auth_me():
+    """获取当前登录用户信息"""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': '未登录', 'code': 'UNAUTHORIZED'}), 401
+    return jsonify({'success': True, 'data': user})
+
+
+@app.route('/api/users', methods=['GET'])
+@require_login
+def list_users():
+    """用户列表（仅管理员）"""
+    user = get_current_user()
+    if not user.get('is_admin'):
+        return jsonify({'error': '无权限'}), 403
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT id, username, is_admin, created_at FROM users ORDER BY id')
+                rows = cur.fetchall()
+        users = []
+        for r in rows:
+            u = dict(r)
+            u['created_at'] = u['created_at'].isoformat() if u.get('created_at') else None
+            users.append(u)
+        return jsonify({'success': True, 'data': users})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/timestamp/convert', methods=['POST'])
@@ -468,20 +603,34 @@ def get_cron_description(cron_expr):
     return ' '.join(descriptions)
 
 
-# ---------- Agent 管理 ----------
+# ---------- Agent 管理（需登录） ----------
 @app.route('/api/agents', methods=['GET'])
+@require_login
 def list_agents():
-    """Agent列表：自己创建的直接返回，他人创建的需传token验证"""
-    client_ip = get_client_ip()
+    """Agent 列表：普通用户仅自己的，管理员全部并显示创建者"""
+    user = get_current_user()
     try:
         with get_db() as conn:
             with conn.cursor() as cur:
-                cur.execute('SELECT id, name, url, creator_ip, status, last_check_at, kafka_config, created_at FROM agents ORDER BY id')
+                if user.get('is_admin'):
+                    cur.execute('''
+                        SELECT a.id, a.name, a.url, a.creator_ip, a.creator_user_id, a.status, a.last_check_at, a.kafka_config, a.created_at,
+                               u.username AS creator_username
+                        FROM agents a
+                        LEFT JOIN users u ON a.creator_user_id = u.id
+                        ORDER BY a.id
+                    ''')
+                else:
+                    cur.execute('''
+                        SELECT id, name, url, creator_ip, creator_user_id, status, last_check_at, kafka_config, created_at
+                        FROM agents WHERE creator_user_id = %s ORDER BY id
+                    ''', (user['id'],))
                 rows = cur.fetchall()
         agents = []
         for r in rows:
             item = dict(r)
-            item['is_owner'] = can_modify_agent(item, client_ip)
+            item['is_owner'] = can_modify_agent(item, user)
+            item['creator_username'] = item.get('creator_username')  # 仅管理员列表有
             item['last_check_at'] = item['last_check_at'].isoformat() if item.get('last_check_at') else None
             if item.get('kafka_config') and isinstance(item['kafka_config'], str):
                 try:
@@ -495,8 +644,10 @@ def list_agents():
 
 
 @app.route('/api/agents', methods=['POST'])
+@require_login
 def create_agent():
-    """新增Agent"""
+    """新增 Agent"""
+    user = get_current_user()
     client_ip = get_client_ip()
     data = request.get_json()
     name = data.get('name')
@@ -512,8 +663,8 @@ def create_agent():
         with get_db() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    'INSERT INTO agents (name, url, token, creator_ip, status, kafka_config) VALUES (%s,%s,%s,%s,%s,%s)',
-                    (name, url.rstrip('/'), token, client_ip, 'ok', json.dumps(kafka_config) if kafka_config else None)
+                    'INSERT INTO agents (name, url, token, creator_user_id, creator_ip, status, kafka_config) VALUES (%s,%s,%s,%s,%s,%s,%s)',
+                    (name, url.rstrip('/'), token, user['id'], client_ip, 'online', json.dumps(kafka_config) if kafka_config else None)
                 )
                 agent_id = cur.lastrowid
         return jsonify({'success': True, 'data': {'id': agent_id}})
@@ -522,9 +673,10 @@ def create_agent():
 
 
 @app.route('/api/agents/<int:aid>', methods=['PUT'])
+@require_login
 def update_agent(aid):
-    """更新Agent（仅管理员或创建者）"""
-    client_ip = get_client_ip()
+    """更新 Agent（仅管理员或创建者）"""
+    user = get_current_user()
     data = request.get_json() or {}
     try:
         with get_db() as conn:
@@ -533,7 +685,7 @@ def update_agent(aid):
                 agent = cur.fetchone()
             if not agent:
                 return jsonify({'error': 'Agent不存在'}), 404
-            if not can_modify_agent(agent, client_ip):
+            if not can_modify_agent(agent, user):
                 return jsonify({'error': '无权限修改'}), 403
             name = data.get('name') or agent['name']
             url = (data.get('url') or agent['url']).strip().rstrip('/')
@@ -564,9 +716,10 @@ def update_agent(aid):
 
 
 @app.route('/api/agents/<int:aid>', methods=['DELETE'])
+@require_login
 def delete_agent(aid):
-    """删除Agent（仅管理员或创建者）"""
-    client_ip = get_client_ip()
+    """删除 Agent（仅管理员或创建者）"""
+    user = get_current_user()
     try:
         with get_db() as conn:
             with conn.cursor() as cur:
@@ -574,7 +727,7 @@ def delete_agent(aid):
                 agent = cur.fetchone()
             if not agent:
                 return jsonify({'error': 'Agent不存在'}), 404
-            if not can_modify_agent(agent, client_ip):
+            if not can_modify_agent(agent, user):
                 return jsonify({'error': '无权限删除'}), 403
             with conn.cursor() as cur:
                 cur.execute('DELETE FROM agents WHERE id = %s', (aid,))
@@ -585,8 +738,9 @@ def delete_agent(aid):
 
 
 @app.route('/api/agents/check', methods=['POST'])
+@require_login
 def agent_check():
-    """校验Agent是否可用，输入url和token"""
+    """校验 Agent 是否可用（需登录）"""
     data = request.get_json()
     url = data.get('url')
     token = data.get('token')
@@ -596,8 +750,9 @@ def agent_check():
     return jsonify({'success': True, 'data': {'available': ok, 'detail': detail}})
 
 
-# ---------- 模板参数解析 ----------
+# ---------- 模板参数解析（数据构造用，需登录） ----------
 @app.route('/api/template/params', methods=['POST'])
+@require_login
 def template_params():
     """从模板中识别可变参数 {param}"""
     data = request.get_json()
@@ -606,25 +761,37 @@ def template_params():
     return jsonify({'success': True, 'data': params})
 
 
-# ---------- 数据构造任务 ----------
+# ---------- 数据构造任务（需登录） ----------
 @app.route('/api/data-tasks', methods=['GET'])
+@require_login
 def list_data_tasks():
-    """任务列表"""
-    client_ip = get_client_ip()
+    """任务列表：普通用户仅自己的，管理员全部并显示创建者"""
+    user = get_current_user()
     try:
         with get_db() as conn:
             with conn.cursor() as cur:
-                cur.execute('''
-                    SELECT t.*, a.name as agent_name
-                    FROM data_tasks t
-                    LEFT JOIN agents a ON t.agent_id = a.id
-                    ORDER BY t.id
-                ''')
+                if user.get('is_admin'):
+                    cur.execute('''
+                        SELECT t.*, a.name as agent_name, u.username as creator_username
+                        FROM data_tasks t
+                        LEFT JOIN agents a ON t.agent_id = a.id
+                        LEFT JOIN users u ON t.creator_user_id = u.id
+                        ORDER BY t.id
+                    ''')
+                else:
+                    cur.execute('''
+                        SELECT t.*, a.name as agent_name
+                        FROM data_tasks t
+                        LEFT JOIN agents a ON t.agent_id = a.id
+                        WHERE t.creator_user_id = %s
+                        ORDER BY t.id
+                    ''', (user['id'],))
                 rows = cur.fetchall()
         tasks = []
         for r in rows:
             item = dict(r)
-            item['is_owner'] = item['creator_ip'] == client_ip or is_admin_ip(client_ip)
+            item['is_owner'] = can_modify_task(item, user)
+            item['creator_username'] = item.get('creator_username')
             if item.get('param_config'):
                 item['param_config'] = json.loads(item['param_config']) if isinstance(item['param_config'], str) else item['param_config']
             if item.get('connector_config'):
@@ -653,16 +820,19 @@ def create_data_task():
     try:
         with get_db() as conn:
             with conn.cursor() as cur:
-                cur.execute('SELECT id FROM agents WHERE id = %s', (agent_id,))
-                if not cur.fetchone():
+                cur.execute('SELECT id, creator_user_id FROM agents WHERE id = %s', (agent_id,))
+                agent_row = cur.fetchone()
+                if not agent_row:
                     return jsonify({'error': 'Agent不存在'}), 400
+                if not user.get('is_admin') and agent_row.get('creator_user_id') != user['id']:
+                    return jsonify({'error': '只能使用自己创建的 Agent'}), 403
                 cur.execute('''
-                    INSERT INTO data_tasks (name, task_type, cron_expr, batch_size, agent_id, template_content, param_config, connector_config, creator_ip)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    INSERT INTO data_tasks (name, task_type, cron_expr, batch_size, agent_id, template_content, param_config, connector_config, creator_user_id, creator_ip)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 ''', (name, task_type, cron_expr, batch_size, agent_id, template_content,
                       json.dumps(param_config) if param_config else None,
                       json.dumps(connector_config) if connector_config else None,
-                      client_ip))
+                      user['id'], client_ip))
                 task_id = cur.lastrowid
             conn.commit()
         return jsonify({'success': True, 'data': {'id': task_id}})
@@ -671,9 +841,10 @@ def create_data_task():
 
 
 @app.route('/api/data-tasks/<int:tid>', methods=['PUT'])
+@require_login
 def update_data_task(tid):
     """更新任务（仅管理员或创建者）"""
-    client_ip = get_client_ip()
+    user = get_current_user()
     data = request.get_json()
     try:
         with get_db() as conn:
@@ -682,7 +853,7 @@ def update_data_task(tid):
                 task = cur.fetchone()
             if not task:
                 return jsonify({'error': '任务不存在'}), 404
-            if not can_modify_task(task, client_ip):
+            if not can_modify_task(task, user):
                 return jsonify({'error': '无权限修改'}), 403
             name = data.get('name', task['name'])
             cron_expr = data.get('cron_expr', task['cron_expr'])
@@ -706,9 +877,10 @@ def update_data_task(tid):
 
 
 @app.route('/api/data-tasks/<int:tid>', methods=['DELETE'])
+@require_login
 def delete_data_task(tid):
     """删除任务（仅管理员或创建者）"""
-    client_ip = get_client_ip()
+    user = get_current_user()
     try:
         with get_db() as conn:
             with conn.cursor() as cur:
@@ -716,7 +888,7 @@ def delete_data_task(tid):
                 task = cur.fetchone()
             if not task:
                 return jsonify({'error': '任务不存在'}), 404
-            if not can_modify_task(task, client_ip):
+            if not can_modify_task(task, user):
                 return jsonify({'error': '无权限删除'}), 403
             _task_stop_flags[tid] = True
             with conn.cursor() as cur:
@@ -729,9 +901,10 @@ def delete_data_task(tid):
 
 
 @app.route('/api/data-tasks/<int:tid>/start', methods=['POST'])
+@require_login
 def start_data_task(tid):
     """启动任务"""
-    client_ip = get_client_ip()
+    user = get_current_user()
     try:
         with get_db() as conn:
             with conn.cursor() as cur:
@@ -739,7 +912,7 @@ def start_data_task(tid):
                 task = cur.fetchone()
             if not task:
                 return jsonify({'error': '任务不存在'}), 404
-            if not can_modify_task(task, client_ip):
+            if not can_modify_task(task, user):
                 return jsonify({'error': '无权限操作'}), 403
             with conn.cursor() as cur:
                 cur.execute('UPDATE data_tasks SET status=%s WHERE id=%s', ('running', tid))
@@ -751,9 +924,10 @@ def start_data_task(tid):
 
 
 @app.route('/api/data-tasks/<int:tid>/stop', methods=['POST'])
+@require_login
 def stop_data_task(tid):
     """停止任务"""
-    client_ip = get_client_ip()
+    user = get_current_user()
     try:
         with get_db() as conn:
             with conn.cursor() as cur:
@@ -761,7 +935,7 @@ def stop_data_task(tid):
                 task = cur.fetchone()
             if not task:
                 return jsonify({'error': '任务不存在'}), 404
-            if not can_modify_task(task, client_ip):
+            if not can_modify_task(task, user):
                 return jsonify({'error': '无权限操作'}), 403
             _task_stop_flags[tid] = True
             with conn.cursor() as cur:
@@ -773,17 +947,19 @@ def stop_data_task(tid):
 
 
 @app.route('/api/data-tasks/<int:tid>/executions', methods=['GET'])
+@require_login
 def list_task_executions(tid):
     """任务执行记录"""
-    client_ip = get_client_ip()
+    user = get_current_user()
     try:
         with get_db() as conn:
             with conn.cursor() as cur:
-                cur.execute('SELECT creator_ip FROM data_tasks WHERE id = %s', (tid,))
+                cur.execute('SELECT creator_user_id FROM data_tasks WHERE id = %s', (tid,))
                 row = cur.fetchone()
             if not row:
                 return jsonify({'error': '任务不存在'}), 404
-            if row['creator_ip'] != client_ip and not is_admin_ip(client_ip):
+            cid = row.get('creator_user_id')
+            if not user.get('is_admin') and (cid is None or cid != user['id']):
                 return jsonify({'error': '无权限'}), 403
             with conn.cursor() as cur:
                 cur.execute('SELECT * FROM task_executions WHERE task_id = %s ORDER BY id DESC LIMIT 100', (tid,))
@@ -908,8 +1084,9 @@ def start_scheduler():
 
 # ---------- 证书上传（Kafka） ----------
 @app.route('/api/upload/cert', methods=['POST'])
+@require_login
 def upload_cert():
-    """上传Kafka证书，返回相对路径供connector_config使用"""
+    """上传 Kafka 证书（数据构造用，需登录）"""
     if 'file' not in request.files:
         return jsonify({'error': '未选择文件'}), 400
     f = request.files['file']

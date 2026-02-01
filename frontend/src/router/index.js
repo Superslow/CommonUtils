@@ -7,8 +7,22 @@ import FileMD5 from '../views/FileMD5.vue'
 import IPChecker from '../views/IPChecker.vue'
 import CronParser from '../views/CronParser.vue'
 import DataConstruction from '../views/DataConstruction.vue'
+import Login from '../views/Login.vue'
+
+function getToken() {
+  try {
+    return localStorage.getItem('token')
+  } catch {
+    return null
+  }
+}
 
 const routes = [
+  {
+    path: '/login',
+    name: 'Login',
+    component: Login
+  },
   {
     path: '/',
     name: 'Home',
@@ -47,7 +61,15 @@ const routes = [
   {
     path: '/data-construction',
     name: 'DataConstruction',
-    component: DataConstruction
+    component: DataConstruction,
+    meta: { requiresAuth: true },
+    beforeEnter: (_to, _from, next) => {
+      if (!getToken()) {
+        next({ path: '/login', query: { redirect: '/data-construction' } })
+      } else {
+        next()
+      }
+    }
   }
 ]
 
