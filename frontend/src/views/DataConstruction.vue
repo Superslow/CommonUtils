@@ -55,8 +55,9 @@
         <el-form-item label="URL" required>
           <el-input v-model="agentForm.url" placeholder="http://host:5001" />
         </el-form-item>
-        <el-form-item label="Token" required>
-          <el-input v-model="agentForm.token" type="password" placeholder="Agent 启动时控制台输出的 Token" show-password />
+        <el-form-item :required="!editingAgent">
+          <template #label>Token</template>
+          <el-input v-model="agentForm.token" type="password" :placeholder="editingAgent ? '编辑时留空则保持原 Token' : 'Agent 启动时控制台输出的 Token'" show-password />
         </el-form-item>
         <el-form-item label="Kafka 配置">
           <el-input v-model="agentForm.kafkaConfigStr" type="textarea" :rows="4" placeholder='可选，JSON，如 {"bootstrap_servers":"localhost:9092","topic":"test"}' />
@@ -85,6 +86,23 @@
       <el-alert v-if="checkResult !== null" :type="checkResult ? 'success' : 'error'" :title="checkResult ? 'Agent 可用' : 'Agent 不可用'" style="margin-top: 12px;" />
     </el-dialog>
 
+    <!-- 使用他人 Agent：校验 Token 弹窗 -->
+    <el-dialog v-model="verifyTokenDialogVisible" title="校验 Token 后使用该 Agent" width="440px" @close="verifyTokenForm.token = ''">
+      <p class="verify-tip">该 Agent 为他人添加，请输入该 Agent 的 Token 以验证后使用。</p>
+      <el-form label-width="80px">
+        <el-form-item label="URL">
+          <el-input :model-value="verifyTokenForm.url" readonly />
+        </el-form-item>
+        <el-form-item label="Token" required>
+          <el-input v-model="verifyTokenForm.token" type="password" placeholder="向该 Agent 创建者获取 Token" show-password />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="verifyTokenDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="doVerifyAndUseAgent" :disabled="!verifyTokenForm.token?.trim()">校验并允许使用</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 任务弹窗 -->
     <el-dialog v-model="taskDialogVisible" :title="editingTask ? '编辑任务' : '新增任务'" width="900px">
       <el-form :model="taskForm" label-width="120px">
@@ -104,9 +122,13 @@
           <el-input-number v-model="taskForm.batch_size" :min="1" :max="1000" />
         </el-form-item>
         <el-form-item label="执行 Agent" required>
-          <el-select v-model="taskForm.agent_id" placeholder="选择 Agent" filterable style="width: 100%">
-            <el-option v-for="a in agents.filter(x => x.is_owner)" :key="a.id" :label="a.name" :value="a.id" />
+          <el-select v-model="taskForm.agent_id" placeholder="选择 Agent（本人可直接选；他人需校验 Token 后使用）" filterable style="width: 100%" @change="onTaskAgentChange">
+            <el-option v-for="a in agents" :key="a.id" :label="a.is_owner ? a.name + ' (本人)' : a.name + ' (他人，需校验 Token)'" :value="a.id" />
           </el-select>
+          <div v-if="taskForm.agent_id && selectedAgentNotOwner" class="agent-verify-hint">
+            该 Agent 为他人添加，使用前需校验 Token。
+            <el-button type="primary" link @click="showVerifyAgentTokenDialog">校验 Token 后使用</el-button>
+          </div>
         </el-form-item>
         <template v-if="taskForm.task_type === 'kafka'">
           <el-divider content-position="left">Kafka 连接配置</el-divider>
@@ -238,6 +260,15 @@ const paramConfigList = ref([])
 const executionsDialogVisible = ref(false)
 const executions = ref([])
 const currentTaskId = ref(null)
+const verifiedAgentIds = ref([])
+const verifyTokenDialogVisible = ref(false)
+const verifyTokenForm = ref({ agentId: null, url: '', token: '' })
+
+const selectedAgentNotOwner = computed(() => {
+  if (!taskForm.value.agent_id) return false
+  const a = agents.value.find(x => x.id === taskForm.value.agent_id)
+  return a && !a.is_owner
+})
 
 const loadAgents = () => api.get('/agents').then(r => { if (r.success) agents.value = r.data })
 const loadTasks = () => api.get('/data-tasks').then(r => { if (r.success) tasks.value = r.data })
@@ -253,14 +284,20 @@ function showAgentDialog(row) {
 }
 
 function submitAgent() {
-  const payload = { name: agentForm.value.name, url: agentForm.value.url, token: agentForm.value.token }
+  const token = (agentForm.value.token || '').trim()
+  if (!editingAgent.value && !token) {
+    ElMessage.warning('新增 Agent 时 Token 必填')
+    return
+  }
+  const payload = { name: agentForm.value.name, url: agentForm.value.url }
+  if (token) payload.token = token
   if (agentForm.value.kafkaConfigStr.trim()) {
     try { payload.kafka_config = JSON.parse(agentForm.value.kafkaConfigStr) } catch (e) { ElMessage.error('Kafka 配置不是合法 JSON'); return }
   }
-  const p = editingAgent.value
-    ? api.put(`/agents/${p.id}`, payload)
+  const req = editingAgent.value
+    ? api.put(`/agents/${editingAgent.value.id}`, payload)
     : api.post('/agents', payload)
-  p.then(r => { if (r.success) { ElMessage.success('保存成功'); agentDialogVisible.value = false; loadAgents() } else ElMessage.error(r.error || '失败') }).catch(e => ElMessage.error(e.response?.data?.error || e.message))
+  req.then(r => { if (r.success) { ElMessage.success('保存成功'); agentDialogVisible.value = false; loadAgents() } else ElMessage.error(r.error || '失败') }).catch(e => ElMessage.error(e.response?.data?.error || e.message))
 }
 
 function checkAgentRow(row) {
@@ -277,8 +314,34 @@ function doCheckAgent() {
 
 function deleteAgent(row) {
   ElMessageBox.confirm('确定删除该 Agent？', '提示', { type: 'warning' }).then(() => {
-    api.delete(`/agents/${row.id}`).then(r => { if (r.success) { ElMessage.success('已删除'); loadAgents() } else ElMessage.error(r.error) })
+    api.delete(`/agents/${row.id}`).then(r => { if (r.success) { ElMessage.success('已删除'); loadAgents(); verifiedAgentIds.value = verifiedAgentIds.value.filter(id => id !== row.id) } else ElMessage.error(r.error) })
   }).catch(() => {})
+}
+
+function onTaskAgentChange() {
+  // 选择变化时无需额外处理，仅用于触发 selectedAgentNotOwner 显示
+}
+
+function showVerifyAgentTokenDialog() {
+  const a = agents.value.find(x => x.id === taskForm.value.agent_id)
+  if (!a || a.is_owner) return
+  verifyTokenForm.value = { agentId: a.id, url: a.url, token: '' }
+  verifyTokenDialogVisible.value = true
+}
+
+function doVerifyAndUseAgent() {
+  const url = verifyTokenForm.value.url
+  const token = (verifyTokenForm.value.token || '').trim()
+  if (!token) { ElMessage.warning('请输入 Token'); return }
+  api.post('/agents/check', { url, token }).then(r => {
+    if (r.success && r.data && r.data.available) {
+      verifiedAgentIds.value = [...new Set([...verifiedAgentIds.value, verifyTokenForm.value.agentId])]
+      ElMessage.success('校验通过，可使用该 Agent')
+      verifyTokenDialogVisible.value = false
+    } else {
+      ElMessage.error('Token 错误或 Agent 不可用')
+    }
+  }).catch(e => { ElMessage.error(e.response?.data?.error || e.message || '校验失败') })
 }
 
 function showTaskDialog(row) {
@@ -343,6 +406,12 @@ function parseTemplateParams() {
 }
 
 function submitTask() {
+  const aid = taskForm.value.agent_id
+  const agent = agents.value.find(a => a.id === aid)
+  if (agent && !agent.is_owner && !verifiedAgentIds.value.includes(aid)) {
+    ElMessage.error('该 Agent 为他人添加，请先点击「校验 Token 后使用」并校验通过后再提交')
+    return
+  }
   let connector_config = {}
   if (taskForm.value.task_type === 'kafka') {
     if (!taskForm.value.kafkaBootstrap?.trim() || !taskForm.value.kafkaTopic?.trim()) {
@@ -399,5 +468,17 @@ function showExecutions(row) {
 .data-construction-page {
   max-width: 1600px;
   margin: 0 auto;
+}
+
+.agent-verify-hint {
+  margin-top: 8px;
+  font-size: 13px;
+  color: #909399;
+}
+
+.verify-tip {
+  margin-bottom: 16px;
+  color: #606266;
+  font-size: 14px;
 }
 </style>

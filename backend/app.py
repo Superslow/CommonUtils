@@ -501,7 +501,7 @@ def create_agent():
 def update_agent(aid):
     """更新Agent（仅管理员或创建者）"""
     client_ip = get_client_ip()
-    data = request.get_json()
+    data = request.get_json() or {}
     try:
         with get_db() as conn:
             with conn.cursor() as cur:
@@ -512,17 +512,27 @@ def update_agent(aid):
             if not can_modify_agent(agent, client_ip):
                 return jsonify({'error': '无权限修改'}), 403
             name = data.get('name') or agent['name']
-            url = data.get('url') or agent['url']
-            token = data.get('token') or agent['token']
+            url = (data.get('url') or agent['url']).strip().rstrip('/')
+            token = data.get('token') or agent.get('token') or ''
             kafka_config = data.get('kafka_config')
-            if data.get('url') or data.get('token'):
+            if data.get('url') or (data.get('token') and data.get('token').strip()):
                 ok, _ = check_agent(url, token)
                 if not ok:
                     return jsonify({'error': 'Agent不可用或Token错误'}), 400
+            kafka_val = None
+            if kafka_config is not None:
+                kafka_val = json.dumps(kafka_config) if isinstance(kafka_config, dict) else str(kafka_config)
+            else:
+                raw = agent.get('kafka_config')
+                if isinstance(raw, str):
+                    kafka_val = raw
+                elif raw is not None:
+                    kafka_val = json.dumps(raw)
             with conn.cursor() as cur:
                 cur.execute(
                     'UPDATE agents SET name=%s, url=%s, token=%s, kafka_config=%s, last_check_at=NOW() WHERE id=%s',
-                    (name, url.rstrip('/'), token, json.dumps(kafka_config) if kafka_config else agent.get('kafka_config'), aid))
+                    (name, url, token, kafka_val, aid)
+                )
             conn.commit()
         return jsonify({'success': True})
     except Exception as e:
