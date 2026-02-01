@@ -88,6 +88,20 @@ def migrate_db(conn=None):
             if cursor.fetchone()['n'] == 0:
                 cursor.execute('ALTER TABLE data_tasks ADD COLUMN creator_user_id INT NULL COMMENT "创建者用户ID" AFTER connector_config')
                 cursor.execute("ALTER TABLE data_tasks MODIFY COLUMN creator_ip VARCHAR(45) NULL COMMENT '创建者IP（审计）'")
+            cursor.execute(
+                "SELECT COUNT(*) AS n FROM information_schema.TABLES WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'site_config'",
+                (MYSQL_DATABASE,)
+            )
+            if cursor.fetchone()['n'] == 0:
+                cursor.execute("""
+                    CREATE TABLE site_config (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        config_key VARCHAR(64) NOT NULL UNIQUE,
+                        config_value TEXT,
+                        updated_at DATETIME NULL DEFAULT NULL,
+                        INDEX idx_config_key (config_key)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8
+                """)
         conn.commit()
     finally:
         if close_conn:
