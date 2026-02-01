@@ -270,6 +270,12 @@ def file_md5():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/ip/current', methods=['GET'])
+def ip_current():
+    """返回当前请求的客户端 IP（后端识别，用于权限判断的同一来源）"""
+    return jsonify({'ip': get_client_ip() or ''})
+
+
 @app.route('/api/ip/check', methods=['POST'])
 def ip_check():
     """网段和IP归属关系判断"""
