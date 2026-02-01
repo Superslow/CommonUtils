@@ -1125,7 +1125,7 @@ def start_data_task(tid):
             if not can_modify_task(task, user):
                 return jsonify({'error': '无权限操作'}), 403
             with conn.cursor() as cur:
-                cur.execute('UPDATE data_tasks SET status=%s WHERE id=%s', ('running', tid))
+                cur.execute("UPDATE data_tasks SET status=%s, stop_reason = NULL WHERE id=%s", ('running', tid))
             conn.commit()
         _task_stop_flags[tid] = False
         return jsonify({'success': True})
@@ -1254,6 +1254,16 @@ def run_task_once(task_id):
                     cur.execute(
                         'INSERT INTO task_executions (task_id, batch_no, success, result_message) VALUES (%s,%s,%s,%s)',
                         (task_id, batch_no, 0, err_msg))
+                    cur.execute(
+                        'SELECT success FROM task_executions WHERE task_id = %s ORDER BY id DESC LIMIT 3',
+                        (task_id,)
+                    )
+                    rows = cur.fetchall()
+                    if len(rows) >= 3 and all(r.get('success') == 0 for r in rows):
+                        cur.execute(
+                            "UPDATE data_tasks SET status = 'stopped', stop_reason = %s WHERE id = %s",
+                            ('连续失败超过3次，已自动停止', task_id)
+                        )
         except Exception:
             pass
 
