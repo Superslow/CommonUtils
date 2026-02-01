@@ -38,6 +38,8 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 _task_scheduler = None
 _task_stop_flags = {}
 _agent_status_thread = None
+_scheduled_run_at = {}  # task_id -> next_run.timestamp()，避免同一计划时间重复调度
+_scheduled_run_lock = threading.Lock()
 
 
 def get_client_ip():
@@ -1225,8 +1227,8 @@ def clear_task_executions(tid):
         return jsonify({'error': str(e)}), 500
 
 
-def run_task_once(task_id):
-    """执行一次任务并记录结果"""
+def run_task_once(task_id, scheduled_time=None):
+    """执行一次任务并记录结果。scheduled_time 为 cron 计划执行时间，用于渲染模板中的当前时间/时间戳及记录 executed_at。"""
     batch_no = 1
     try:
         with get_db() as conn:
@@ -1263,7 +1265,7 @@ def run_task_once(task_id):
                 cur.execute('SELECT COALESCE(MAX(batch_no),0) + 1 AS nb FROM task_executions WHERE task_id = %s', (task_id,))
                 batch_no = cur.fetchone()['nb'] or 1
         if task_type == 'kafka':
-            messages = render_kafka_messages(template_content, param_config, batch_size, batch_no)
+            messages = render_kafka_messages(template_content, param_config, batch_size, batch_no, reference_time=scheduled_time)
             conn_cfg = connector_config.get('kafka') or {}
             ssl_cafile = conn_cfg.get('ssl_cafile')
             ssl_cafile_id = conn_cfg.get('ssl_cafile_id')
@@ -1289,7 +1291,7 @@ def run_task_once(task_id):
         else:
             sqls = render_clickhouse_sqls(
                 json.loads(template_content) if isinstance(template_content, str) and template_content.startswith('[') else template_content,
-                param_config, batch_size, batch_no)
+                param_config, batch_size, batch_no, reference_time=scheduled_time)
             conn_cfg = connector_config.get('clickhouse') or {}
             ch_user = conn_cfg.get('user')
             ch_password = conn_cfg.get('password')
@@ -1309,20 +1311,22 @@ def run_task_once(task_id):
                 }
             }
         result = execute_on_agent(agent['url'], agent['token'], task_type, task_data, batch_no)
+        executed_at_val = scheduled_time if scheduled_time is not None else datetime.now()
         with get_db() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    'INSERT INTO task_executions (task_id, batch_no, success, result_message, records_count) VALUES (%s,%s,%s,%s,%s)',
-                    (task_id, batch_no, 1, json.dumps(result), batch_size))
+                    'INSERT INTO task_executions (task_id, batch_no, success, result_message, records_count, executed_at) VALUES (%s,%s,%s,%s,%s,%s)',
+                    (task_id, batch_no, 1, json.dumps(result), batch_size, executed_at_val))
             conn.commit()
     except Exception as e:
         err_msg = traceback.format_exc()
+        executed_at_val = scheduled_time if scheduled_time is not None else datetime.now()
         try:
             with get_db() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
-                        'INSERT INTO task_executions (task_id, batch_no, success, result_message) VALUES (%s,%s,%s,%s)',
-                        (task_id, batch_no, 0, err_msg))
+                        'INSERT INTO task_executions (task_id, batch_no, success, result_message, executed_at) VALUES (%s,%s,%s,%s,%s)',
+                        (task_id, batch_no, 0, err_msg, executed_at_val))
                     cur.execute(
                         'SELECT success FROM task_executions WHERE task_id = %s ORDER BY id DESC LIMIT 3',
                         (task_id,)
@@ -1337,8 +1341,21 @@ def run_task_once(task_id):
             pass
 
 
+def _run_task_at_scheduled_time(task_id, scheduled_time):
+    """在计划时间到达时执行任务，实现毫秒级准时"""
+    delay = (scheduled_time - datetime.now()).total_seconds()
+    if delay > 0:
+        time.sleep(delay)
+    try:
+        run_task_once(task_id, scheduled_time=scheduled_time)
+    finally:
+        with _scheduled_run_lock:
+            if _scheduled_run_at.get(task_id) == scheduled_time.timestamp():
+                _scheduled_run_at.pop(task_id, None)
+
+
 def scheduler_loop():
-    """调度循环：按Cron执行运行中的任务（支持 5 字段与 6 字段 Quartz）"""
+    """调度循环：按Cron执行运行中的任务；临近计划时间时起线程 sleep 到点再执行，实现毫秒级准时"""
     from croniter import croniter
     while True:
         try:
@@ -1352,16 +1369,28 @@ def scheduler_loop():
                     continue
                 try:
                     normalized = _normalize_cron_to_croniter(t['cron_expr'])
-                    if normalized:
-                        cron = croniter(normalized, now)
-                        next_run = cron.get_next(datetime)
-                        if (next_run - now).total_seconds() < 60:
-                            run_task_once(t['id'])
+                    if not normalized:
+                        continue
+                    cron = croniter(normalized, now)
+                    next_run = cron.get_next(datetime)
+                    secs = (next_run - now).total_seconds()
+                    if secs <= 0 or secs > 65:
+                        continue
+                    with _scheduled_run_lock:
+                        key = next_run.timestamp()
+                        if _scheduled_run_at.get(t['id']) == key:
+                            continue
+                        _scheduled_run_at[t['id']] = key
+                    threading.Thread(
+                        target=_run_task_at_scheduled_time,
+                        args=(t['id'], next_run),
+                        daemon=True
+                    ).start()
                 except Exception:
                     pass
         except Exception:
             pass
-        time.sleep(30)
+        time.sleep(1)
 
 
 def start_scheduler():
