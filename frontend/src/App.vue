@@ -303,7 +303,7 @@ body {
 }
 
 .app-main {
-  padding: 28px 48px;
+  padding: 28px 80px;
   max-width: 1800px;
   margin: 0 auto;
   min-height: calc(100vh - 120px);

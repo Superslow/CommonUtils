@@ -83,7 +83,7 @@ mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS common_utils DEFAULT CHARACTE
 ```
 
 2. **配置连接**（任选其一）：
-   - **环境变量**（推荐）：
+   - **环境变量**：
      ```bash
      export MYSQL_HOST=localhost
      export MYSQL_PORT=3306
@@ -91,6 +91,8 @@ mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS common_utils DEFAULT CHARACTE
      export MYSQL_PASSWORD=your_password
      export MYSQL_DATABASE=common_utils
      ```
+   - **.env 文件**（推荐，尤其 Windows）：在 `backend` 目录下新建 `.env`（可复制 `.env.example`），写入上述变量。启动时会用 `python-dotenv` 自动加载。
+   - **config_local.py**：在 `backend` 目录下新建 `config_local.py`（可复制 `config_local.example.py`），例如 `MYSQL_PASSWORD = '你的密码'`，会覆盖环境变量。详见 `backend/README.md`。
    - **直接改配置**：编辑 `backend/config.py`，修改 `MYSQL_HOST`、`MYSQL_USER`、`MYSQL_PASSWORD`、`MYSQL_DATABASE` 等。
 
 3. **表结构**：后端首次启动时会自动执行 `backend/database/schema.sql` 建表（在 `python app.py` 里会调用 `init_db()`），无需手动导入。若已存在表则跳过。
@@ -191,6 +193,11 @@ npm run dev
 | 前端请求后端 | `/api` → `http://localhost:5000` | `frontend/vite.config.js` 的 `server.proxy['/api'].target` |
 | Agent  | `http://0.0.0.0:5001` | 启动参数 `-p/--port`、`-H/--host` |
 
+### 6. 部署与多机访问说明
+
+- **反向代理（如 nginx）**：若前端通过 nginx 访问后端，必须让后端拿到真实客户端 IP，否则所有人会被当成同一 IP，权限判断错误。在 nginx 中设置 `proxy_set_header X-Forwarded-For $remote_addr;`，并在后端配置 `CLIENT_IP_HEADER=X-Forwarded-For`（环境变量或 `backend/config.py`）。
+- **管理员**：第一个注册用户需在数据库中手动设为管理员（`users.is_admin = 1`），或使用预留管理员账号（若在配置中设置了 `ADMIN_USERNAME`/`ADMIN_PASSWORD`，可用该账号登录后拥有管理员权限）。部署机器 IP 也可在配置中设为管理员 IP（`ADMIN_IPS`）作为兜底。
+
 ## API接口
 
 ### 时间戳转换
@@ -208,9 +215,29 @@ npm run dev
 
 ### IP检查
 - `POST /api/ip/check` - 检查IP地址和网段关系
+- `GET /api/ip/current` - 获取当前请求的客户端 IP（用于前端展示「当前访问IP」）
 
 ### Cron解析
 - `POST /api/cron/parse` - 解析Cron表达式
+
+### 日期格式预览
+- `POST /api/date-format/preview` - 按 strftime 格式渲染当前时间（用于数据构造中「当前时间」参数格式校验）
+
+### 认证（数据构造等需登录接口使用）
+- `POST /api/auth/register` - 注册（用户名、密码）
+- `POST /api/auth/login` - 登录（返回 JWT）
+- `GET /api/auth/me` - 获取当前用户信息（需 Authorization 头）
+- `POST /api/auth/change-password` - 修改密码（需登录）
+
+### 站点配置（管理员）
+- `GET /api/site/menu` - 获取顶栏菜单项（顺序、可见性）
+- `PUT /api/site/menu` - 更新菜单（管理员）
+- `GET /api/site/announcement` - 获取当前公告
+- `POST /api/site/announcement` - 发布/清空公告（管理员）
+
+### 数据构造（需登录）
+- Agent：`GET/POST/PUT/DELETE /api/agents/*` - Agent 的增删改查与状态
+- 任务：`GET/POST/PUT/DELETE /api/data-tasks/*`、`POST /api/data-tasks/:id/run-once` - 任务的增删改查与单次执行
 
 ### 健康检查
 - `GET /api/health` - 服务健康检查

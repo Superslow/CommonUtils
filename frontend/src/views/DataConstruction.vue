@@ -34,7 +34,7 @@
           <el-table-column prop="agent_name" label="Agent" width="120" />
           <el-table-column v-if="currentUser?.is_admin" prop="creator_username" label="创建者" width="100" />
           <el-table-column prop="status" label="状态" width="80" />
-          <el-table-column label="操作" width="260" fixed="right">
+          <el-table-column label="操作" width="340" min-width="340" fixed="right">
             <template #default="{ row }">
               <el-button v-if="row.is_owner" link type="success" @click="startTask(row)" :disabled="row.status === 'running'">启动</el-button>
               <el-button v-if="row.is_owner" link type="warning" @click="stopTask(row)" :disabled="row.status !== 'running'">停止</el-button>
@@ -100,7 +100,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="Cron 表达式" required>
-          <el-input v-model="taskForm.cron_expr" placeholder="5 字段：* * * * * 每分钟；6 字段 Quartz：0 * * * * ? 每分钟" />
+          <el-input v-model="taskForm.cron_expr" placeholder="6 字段 Quartz 示例：0/1 * * * * ? 每秒；0 * * * * ? 每分钟" />
         </el-form-item>
         <el-form-item label="每批条数" required>
           <el-input-number v-model="taskForm.batch_size" :min="1" :max="1000" />
@@ -206,7 +206,10 @@
     </el-dialog>
 
     <!-- 执行记录弹窗 -->
-    <el-dialog v-model="executionsDialogVisible" title="执行记录" width="800px">
+    <el-dialog v-model="executionsDialogVisible" title="执行记录" width="900px" @open="currentTaskId && loadExecutions()">
+      <div class="executions-toolbar">
+        <el-button type="primary" link @click="loadExecutions" :disabled="!currentTaskId">刷新</el-button>
+      </div>
       <el-table :data="executions" border max-height="400">
         <el-table-column prop="batch_no" label="批次" width="80" />
         <el-table-column prop="executed_at" label="执行时间" width="180" />
@@ -214,7 +217,7 @@
           <template #default="{ row }">{{ row.success ? '是' : '否' }}</template>
         </el-table-column>
         <el-table-column prop="records_count" label="条数" width="80" />
-        <el-table-column prop="result_message" label="结果" show-overflow-tooltip />
+        <el-table-column prop="result_message" label="结果" min-width="200" show-overflow-tooltip />
       </el-table>
     </el-dialog>
   </div>
@@ -241,7 +244,7 @@ const checkResult = ref(null)
 const taskDialogVisible = ref(false)
 const editingTask = ref(null)
 const taskForm = ref({
-  name: '', task_type: 'kafka', cron_expr: '* * * * *', batch_size: 1, agent_id: null,
+  name: '', task_type: 'kafka', cron_expr: '0/1 * * * * ?', batch_size: 1, agent_id: null,
   template_content: '',
   kafkaBootstrap: '', kafkaTopic: '', kafkaSecurityProtocol: 'PLAINTEXT',
   kafkaUsername: '', kafkaPassword: '', kafkaSaslMechanism: 'PLAIN',
@@ -361,7 +364,7 @@ function showTaskDialog(row) {
     }
   } else {
     taskForm.value = {
-      name: '', task_type: 'kafka', cron_expr: '* * * * *', batch_size: 1, agent_id: null, template_content: '',
+      name: '', task_type: 'kafka', cron_expr: '0/1 * * * * ?', batch_size: 1, agent_id: null, template_content: '',
       kafkaBootstrap: '', kafkaTopic: '', kafkaSecurityProtocol: 'PLAINTEXT',
       kafkaUsername: '', kafkaPassword: '', kafkaSaslMechanism: 'PLAIN',
       kafkaSslCafile: '',
@@ -478,7 +481,15 @@ function deleteTask(row) {
 
 function showExecutions(row) {
   currentTaskId.value = row.id
-  api.get(`/data-tasks/${row.id}/executions`).then(r => { if (r.success) executions.value = r.data; executionsDialogVisible.value = true })
+  executionsDialogVisible.value = true
+  loadExecutions()
+}
+
+function loadExecutions() {
+  if (!currentTaskId.value) return
+  api.get(`/data-tasks/${currentTaskId.value}/executions`).then(r => {
+    if (r.success) executions.value = r.data
+  })
 }
 </script>
 
@@ -515,5 +526,9 @@ function showExecutions(row) {
   font-size: 12px;
   color: #909399;
   line-height: 1.5;
+}
+
+.executions-toolbar {
+  margin-bottom: 12px;
 }
 </style>

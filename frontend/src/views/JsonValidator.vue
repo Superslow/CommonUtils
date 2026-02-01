@@ -96,7 +96,7 @@ const clear = () => {
 }
 
 .json-card :deep(.el-card__body) {
-  padding: 28px 40px 32px;
+  padding: 28px 56px 32px;
 }
 
 .json-form {
