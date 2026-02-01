@@ -16,7 +16,7 @@
 
 <script setup>
 import { useRouter } from 'vue-router'
-import { Clock, Document, Connection, Files, Monitor, Timer, DataAnalysis } from '@element-plus/icons-vue'
+import { Clock, Document, Connection, Files, Monitor, Timer, DataAnalysis, Calendar } from '@element-plus/icons-vue'
 
 const router = useRouter()
 
@@ -56,6 +56,12 @@ const tools = [
     description: '解析Cron表达式并查看执行时间',
     icon: 'Timer',
     path: '/cron'
+  },
+  {
+    title: '日期格式预览',
+    description: '按 strftime 格式渲染当前时间，校验是否预期',
+    icon: 'Calendar',
+    path: '/date-format'
   },
   {
     title: '数据构造',

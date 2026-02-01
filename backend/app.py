@@ -286,6 +286,18 @@ def timestamp_convert():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/date-format/preview', methods=['POST'])
+def date_format_preview():
+    """按 strftime 格式渲染当前时间，用于校验「当前时间」参数格式是否预期（普通工具，不需登录）"""
+    try:
+        data = request.get_json() or {}
+        fmt = (data.get('format') or '').strip() or '%Y-%m-%d %H:%M:%S'
+        formatted = datetime.now().strftime(fmt)
+        return jsonify({'success': True, 'data': {'format': fmt, 'formatted': formatted}})
+    except (ValueError, TypeError) as e:
+        return jsonify({'error': f'格式无效: {e}'}), 400
+
+
 @app.route('/api/timestamp/current', methods=['GET'])
 def current_timestamp():
     """获取当前时间戳"""

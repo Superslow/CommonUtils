@@ -55,6 +55,7 @@
       <el-menu-item index="/md5">MD5计算</el-menu-item>
       <el-menu-item index="/ip">IP网段</el-menu-item>
       <el-menu-item index="/cron">Cron解析</el-menu-item>
+      <el-menu-item index="/date-format">日期格式</el-menu-item>
       <el-menu-item index="/data-construction">数据构造</el-menu-item>
     </el-menu>
     <el-main class="app-main">
