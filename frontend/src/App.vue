@@ -38,8 +38,9 @@ body {
 }
 
 .el-main {
-  padding: 20px;
-  max-width: 1200px;
+  padding: 24px;
+  max-width: 1800px;
   margin: 0 auto;
+  min-height: calc(100vh - 120px);
 }
 </style>

@@ -6,6 +6,7 @@ import EncodeConverter from '../views/EncodeConverter.vue'
 import FileMD5 from '../views/FileMD5.vue'
 import IPChecker from '../views/IPChecker.vue'
 import CronParser from '../views/CronParser.vue'
+import DataConstruction from '../views/DataConstruction.vue'
 
 const routes = [
   {
@@ -42,6 +43,11 @@ const routes = [
     path: '/cron',
     name: 'CronParser',
     component: CronParser
+  },
+  {
+    path: '/data-construction',
+    name: 'DataConstruction',
+    component: DataConstruction
   }
 ]
 

@@ -10,7 +10,7 @@
           <el-input
             v-model="jsonText"
             type="textarea"
-            :rows="10"
+            :rows="14"
             placeholder="输入JSON字符串"
           />
         </el-form-item>
@@ -36,7 +36,7 @@
           <el-input
             v-model="result.formatted"
             type="textarea"
-            :rows="15"
+            :rows="20"
             readonly
           />
         </div>
@@ -85,7 +85,7 @@ const clear = () => {
 
 <style scoped>
 .json-page {
-  max-width: 1000px;
+  max-width: 1400px;
   margin: 0 auto;
 }
 </style>

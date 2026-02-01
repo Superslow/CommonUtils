@@ -1,6 +1,6 @@
 """
 通用工具类Web服务
-提供时间戳转换、JSON格式化校验、编码转换、文件MD5值计算、网段和IP归属关系判断、Cron表达式解析等功能
+提供时间戳转换、JSON格式化校验、编码转换、文件MD5值计算、网段和IP归属关系判断、Cron表达式解析、数据构造任务等功能
 """
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -9,12 +9,43 @@ import time
 import hashlib
 import base64
 import ipaddress
+import os
+import threading
 from datetime import datetime
 from croniter import croniter
 import codecs
 
+from database.db import get_db, init_db, is_admin_ip
+from agent_client import check_agent, execute_on_agent
+from template_utils import extract_params, render_kafka_messages, render_clickhouse_sqls
+
 app = Flask(__name__)
-CORS(app)  # 允许跨域请求
+CORS(app)
+app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(__file__), 'uploads')
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+# 任务调度状态
+_task_scheduler = None
+_task_stop_flags = {}
+
+
+def get_client_ip():
+    """获取客户端IP"""
+    return request.headers.get('X-Forwarded-For', request.headers.get('X-Real-IP', request.remote_addr or '')).split(',')[0].strip() or '127.0.0.1'
+
+
+def can_modify_agent(agent, client_ip):
+    """检查是否可以修改Agent（管理员或创建者）"""
+    if is_admin_ip(client_ip):
+        return True
+    return agent.get('creator_ip') == client_ip
+
+
+def can_modify_task(task, client_ip):
+    """检查是否可以修改任务"""
+    if is_admin_ip(client_ip):
+        return True
+    return task.get('creator_ip') == client_ip
 
 
 @app.route('/api/timestamp/convert', methods=['POST'])
@@ -382,6 +413,447 @@ def get_cron_description(cron_expr):
     return ' '.join(descriptions)
 
 
+# ---------- Agent 管理 ----------
+@app.route('/api/agents', methods=['GET'])
+def list_agents():
+    """Agent列表：自己创建的直接返回，他人创建的需传token验证"""
+    client_ip = get_client_ip()
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT id, name, url, creator_ip, status, last_check_at, kafka_config, created_at FROM agents ORDER BY id')
+                rows = cur.fetchall()
+        agents = []
+        for r in rows:
+            item = dict(r)
+            item['is_owner'] = item['creator_ip'] == client_ip or is_admin_ip(client_ip)
+            item['last_check_at'] = item['last_check_at'].isoformat() if item.get('last_check_at') else None
+            if item.get('kafka_config') and isinstance(item['kafka_config'], str):
+                try:
+                    item['kafka_config'] = json.loads(item['kafka_config'])
+                except Exception:
+                    pass
+            agents.append(item)
+        return jsonify({'success': True, 'data': agents})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/agents', methods=['POST'])
+def create_agent():
+    """新增Agent"""
+    client_ip = get_client_ip()
+    data = request.get_json()
+    name = data.get('name')
+    url = data.get('url')
+    token = data.get('token')
+    kafka_config = data.get('kafka_config')
+    if not name or not url or not token:
+        return jsonify({'error': '缺少name/url/token'}), 400
+    ok, _ = check_agent(url, token)
+    if not ok:
+        return jsonify({'error': 'Agent不可用或Token错误'}), 400
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    'INSERT INTO agents (name, url, token, creator_ip, status, kafka_config) VALUES (%s,%s,%s,%s,%s,%s)',
+                    (name, url.rstrip('/'), token, client_ip, 'ok', json.dumps(kafka_config) if kafka_config else None)
+                )
+                agent_id = cur.lastrowid
+        return jsonify({'success': True, 'data': {'id': agent_id}})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/agents/<int:aid>', methods=['PUT'])
+def update_agent(aid):
+    """更新Agent（仅管理员或创建者）"""
+    client_ip = get_client_ip()
+    data = request.get_json()
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT * FROM agents WHERE id = %s', (aid,))
+                agent = cur.fetchone()
+            if not agent:
+                return jsonify({'error': 'Agent不存在'}), 404
+            if not can_modify_agent(agent, client_ip):
+                return jsonify({'error': '无权限修改'}), 403
+            name = data.get('name') or agent['name']
+            url = data.get('url') or agent['url']
+            token = data.get('token') or agent['token']
+            kafka_config = data.get('kafka_config')
+            if data.get('url') or data.get('token'):
+                ok, _ = check_agent(url, token)
+                if not ok:
+                    return jsonify({'error': 'Agent不可用或Token错误'}), 400
+            with conn.cursor() as cur:
+                cur.execute(
+                    'UPDATE agents SET name=%s, url=%s, token=%s, kafka_config=%s, last_check_at=NOW() WHERE id=%s',
+                    (name, url.rstrip('/'), token, json.dumps(kafka_config) if kafka_config else agent.get('kafka_config'), aid))
+            conn.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/agents/<int:aid>', methods=['DELETE'])
+def delete_agent(aid):
+    """删除Agent（仅管理员或创建者）"""
+    client_ip = get_client_ip()
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT * FROM agents WHERE id = %s', (aid,))
+                agent = cur.fetchone()
+            if not agent:
+                return jsonify({'error': 'Agent不存在'}), 404
+            if not can_modify_agent(agent, client_ip):
+                return jsonify({'error': '无权限删除'}), 403
+            with conn.cursor() as cur:
+                cur.execute('DELETE FROM agents WHERE id = %s', (aid,))
+            conn.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/agents/check', methods=['POST'])
+def agent_check():
+    """校验Agent是否可用，输入url和token"""
+    data = request.get_json()
+    url = data.get('url')
+    token = data.get('token')
+    if not url or not token:
+        return jsonify({'error': '缺少url或token'}), 400
+    ok, detail = check_agent(url, token)
+    return jsonify({'success': True, 'data': {'available': ok, 'detail': detail}})
+
+
+# ---------- 模板参数解析 ----------
+@app.route('/api/template/params', methods=['POST'])
+def template_params():
+    """从模板中识别可变参数 {param}"""
+    data = request.get_json()
+    template = data.get('template', '')
+    params = extract_params(template)
+    return jsonify({'success': True, 'data': params})
+
+
+# ---------- 数据构造任务 ----------
+@app.route('/api/data-tasks', methods=['GET'])
+def list_data_tasks():
+    """任务列表"""
+    client_ip = get_client_ip()
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('''
+                    SELECT t.*, a.name as agent_name
+                    FROM data_tasks t
+                    LEFT JOIN agents a ON t.agent_id = a.id
+                    ORDER BY t.id
+                ''')
+                rows = cur.fetchall()
+        tasks = []
+        for r in rows:
+            item = dict(r)
+            item['is_owner'] = item['creator_ip'] == client_ip or is_admin_ip(client_ip)
+            if item.get('param_config'):
+                item['param_config'] = json.loads(item['param_config']) if isinstance(item['param_config'], str) else item['param_config']
+            if item.get('connector_config'):
+                item['connector_config'] = json.loads(item['connector_config']) if isinstance(item['connector_config'], str) else item['connector_config']
+            tasks.append(item)
+        return jsonify({'success': True, 'data': tasks})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/data-tasks', methods=['POST'])
+def create_data_task():
+    """创建数据构造任务"""
+    client_ip = get_client_ip()
+    data = request.get_json()
+    name = data.get('name')
+    task_type = data.get('task_type')
+    cron_expr = data.get('cron_expr')
+    batch_size = data.get('batch_size', 1)
+    agent_id = data.get('agent_id')
+    template_content = data.get('template_content')
+    param_config = data.get('param_config')
+    connector_config = data.get('connector_config')
+    if not all([name, task_type, cron_expr, agent_id, template_content]):
+        return jsonify({'error': '缺少必填项'}), 400
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT id FROM agents WHERE id = %s', (agent_id,))
+                if not cur.fetchone():
+                    return jsonify({'error': 'Agent不存在'}), 400
+                cur.execute('''
+                    INSERT INTO data_tasks (name, task_type, cron_expr, batch_size, agent_id, template_content, param_config, connector_config, creator_ip)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ''', (name, task_type, cron_expr, batch_size, agent_id, template_content,
+                      json.dumps(param_config) if param_config else None,
+                      json.dumps(connector_config) if connector_config else None,
+                      client_ip))
+                task_id = cur.lastrowid
+            conn.commit()
+        return jsonify({'success': True, 'data': {'id': task_id}})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/data-tasks/<int:tid>', methods=['PUT'])
+def update_data_task(tid):
+    """更新任务（仅管理员或创建者）"""
+    client_ip = get_client_ip()
+    data = request.get_json()
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT * FROM data_tasks WHERE id = %s', (tid,))
+                task = cur.fetchone()
+            if not task:
+                return jsonify({'error': '任务不存在'}), 404
+            if not can_modify_task(task, client_ip):
+                return jsonify({'error': '无权限修改'}), 403
+            name = data.get('name', task['name'])
+            cron_expr = data.get('cron_expr', task['cron_expr'])
+            batch_size = data.get('batch_size', task['batch_size'])
+            agent_id = data.get('agent_id', task['agent_id'])
+            template_content = data.get('template_content', task['template_content'])
+            param_config = data.get('param_config', task.get('param_config'))
+            connector_config = data.get('connector_config', task.get('connector_config'))
+            with conn.cursor() as cur:
+                cur.execute('''
+                    UPDATE data_tasks SET name=%s, cron_expr=%s, batch_size=%s, agent_id=%s,
+                    template_content=%s, param_config=%s, connector_config=%s WHERE id=%s
+                ''', (name, cron_expr, batch_size, agent_id, template_content,
+                      json.dumps(param_config) if param_config else param_config,
+                      json.dumps(connector_config) if connector_config else connector_config,
+                      tid))
+            conn.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/data-tasks/<int:tid>', methods=['DELETE'])
+def delete_data_task(tid):
+    """删除任务（仅管理员或创建者）"""
+    client_ip = get_client_ip()
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT * FROM data_tasks WHERE id = %s', (tid,))
+                task = cur.fetchone()
+            if not task:
+                return jsonify({'error': '任务不存在'}), 404
+            if not can_modify_task(task, client_ip):
+                return jsonify({'error': '无权限删除'}), 403
+            _task_stop_flags[tid] = True
+            with conn.cursor() as cur:
+                cur.execute('UPDATE data_tasks SET status=%s WHERE id=%s', ('stopped', tid))
+                cur.execute('DELETE FROM data_tasks WHERE id = %s', (tid,))
+            conn.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/data-tasks/<int:tid>/start', methods=['POST'])
+def start_data_task(tid):
+    """启动任务"""
+    client_ip = get_client_ip()
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT * FROM data_tasks WHERE id = %s', (tid,))
+                task = cur.fetchone()
+            if not task:
+                return jsonify({'error': '任务不存在'}), 404
+            if not can_modify_task(task, client_ip):
+                return jsonify({'error': '无权限操作'}), 403
+            with conn.cursor() as cur:
+                cur.execute('UPDATE data_tasks SET status=%s WHERE id=%s', ('running', tid))
+            conn.commit()
+        _task_stop_flags[tid] = False
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/data-tasks/<int:tid>/stop', methods=['POST'])
+def stop_data_task(tid):
+    """停止任务"""
+    client_ip = get_client_ip()
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT * FROM data_tasks WHERE id = %s', (tid,))
+                task = cur.fetchone()
+            if not task:
+                return jsonify({'error': '任务不存在'}), 404
+            if not can_modify_task(task, client_ip):
+                return jsonify({'error': '无权限操作'}), 403
+            _task_stop_flags[tid] = True
+            with conn.cursor() as cur:
+                cur.execute('UPDATE data_tasks SET status=%s WHERE id=%s', ('stopped', tid))
+            conn.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/data-tasks/<int:tid>/executions', methods=['GET'])
+def list_task_executions(tid):
+    """任务执行记录"""
+    client_ip = get_client_ip()
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT creator_ip FROM data_tasks WHERE id = %s', (tid,))
+                row = cur.fetchone()
+            if not row:
+                return jsonify({'error': '任务不存在'}), 404
+            if row['creator_ip'] != client_ip and not is_admin_ip(client_ip):
+                return jsonify({'error': '无权限'}), 403
+            with conn.cursor() as cur:
+                cur.execute('SELECT * FROM task_executions WHERE task_id = %s ORDER BY id DESC LIMIT 100', (tid,))
+                rows = cur.fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            if d.get('executed_at'):
+                d['executed_at'] = d['executed_at'].isoformat()
+            result.append(d)
+        return jsonify({'success': True, 'data': result})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+def run_task_once(task_id):
+    """执行一次任务并记录结果"""
+    batch_no = 1
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT * FROM data_tasks WHERE id = %s AND status = %s', (task_id, 'running'))
+                task = cur.fetchone()
+            if not task or _task_stop_flags.get(task_id):
+                return
+            with conn.cursor() as cur:
+                cur.execute('SELECT url, token FROM agents WHERE id = %s', (task['agent_id'],))
+                agent = cur.fetchone()
+        if not agent:
+            return
+        task_type = task['task_type']
+        template_content = task['template_content']
+        param_config = task.get('param_config')
+        if isinstance(param_config, str):
+            param_config = json.loads(param_config) if param_config else []
+        connector_config = task.get('connector_config') or {}
+        if isinstance(connector_config, str):
+            connector_config = json.loads(connector_config) or {}
+        batch_size = task.get('batch_size') or 1
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT COALESCE(MAX(batch_no),0) + 1 AS nb FROM task_executions WHERE task_id = %s', (task_id,))
+                batch_no = cur.fetchone()['nb'] or 1
+        if task_type == 'kafka':
+            messages = render_kafka_messages(template_content, param_config, batch_size, batch_no)
+            conn_cfg = connector_config.get('kafka') or {}
+            task_data = {
+                'bootstrap_servers': conn_cfg.get('bootstrap_servers', 'localhost:9092'),
+                'topic': conn_cfg.get('topic', ''),
+                'messages': messages,
+                'config': {
+                    'username': conn_cfg.get('username'),
+                    'password': conn_cfg.get('password'),
+                    'ssl_cafile': conn_cfg.get('ssl_cafile'),
+                    'ssl_certfile': conn_cfg.get('ssl_certfile'),
+                    'ssl_keyfile': conn_cfg.get('ssl_keyfile'),
+                }
+            }
+        else:
+            sqls = render_clickhouse_sqls(
+                json.loads(template_content) if isinstance(template_content, str) and template_content.startswith('[') else template_content,
+                param_config, batch_size, batch_no)
+            conn_cfg = connector_config.get('clickhouse') or {}
+            task_data = {
+                'host': conn_cfg.get('host', 'localhost'),
+                'port': conn_cfg.get('port', 9000),
+                'sqls': sqls,
+                'config': {'user': conn_cfg.get('user', 'default'), 'password': conn_cfg.get('password', '')}
+            }
+        result = execute_on_agent(agent['url'], agent['token'], task_type, task_data, batch_no)
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    'INSERT INTO task_executions (task_id, batch_no, success, result_message, records_count) VALUES (%s,%s,%s,%s,%s)',
+                    (task_id, batch_no, 1, json.dumps(result), batch_size))
+            conn.commit()
+    except Exception as e:
+        try:
+            with get_db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        'INSERT INTO task_executions (task_id, batch_no, success, result_message) VALUES (%s,%s,%s,%s)',
+                        (task_id, batch_no, 0, str(e)))
+                conn.commit()
+        except Exception:
+            pass
+
+
+def scheduler_loop():
+    """调度循环：按Cron执行运行中的任务"""
+    from croniter import croniter
+    while True:
+        try:
+            with get_db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute('SELECT id, cron_expr FROM data_tasks WHERE status = %s', ('running',))
+                    tasks = cur.fetchall()
+            now = datetime.now()
+            for t in tasks:
+                if _task_stop_flags.get(t['id']):
+                    continue
+                try:
+                    cron = croniter(t['cron_expr'], now)
+                    next_run = cron.get_next(datetime)
+                    if (next_run - now).total_seconds() < 60:
+                        run_task_once(t['id'])
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        time.sleep(30)
+
+
+def start_scheduler():
+    global _task_scheduler
+    if _task_scheduler is None or not _task_scheduler.is_alive():
+        _task_scheduler = threading.Thread(target=scheduler_loop, daemon=True)
+        _task_scheduler.start()
+
+
+# ---------- 证书上传（Kafka） ----------
+@app.route('/api/upload/cert', methods=['POST'])
+def upload_cert():
+    """上传Kafka证书，返回相对路径供connector_config使用"""
+    if 'file' not in request.files:
+        return jsonify({'error': '未选择文件'}), 400
+    f = request.files['file']
+    if f.filename == '':
+        return jsonify({'error': '未选择文件'}), 400
+    safe_name = os.path.basename(f.filename)
+    path = os.path.join(app.config['UPLOAD_FOLDER'], safe_name)
+    f.save(path)
+    return jsonify({'success': True, 'data': {'path': path, 'name': safe_name}})
+
+
 @app.route('/api/health', methods=['GET'])
 def health():
     """健康检查"""
@@ -389,4 +861,7 @@ def health():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    init_db()
+    start_scheduler()
+    from config import HOST, PORT, DEBUG
+    app.run(debug=DEBUG, host=HOST, port=PORT)

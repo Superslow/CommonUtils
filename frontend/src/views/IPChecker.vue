@@ -124,7 +124,7 @@ const check = async () => {
 
 <style scoped>
 .ip-page {
-  max-width: 1000px;
+  max-width: 1400px;
   margin: 0 auto;
 }
 

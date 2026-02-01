@@ -16,7 +16,7 @@
 
 <script setup>
 import { useRouter } from 'vue-router'
-import { Clock, Document, Connection, Files, Monitor, Timer } from '@element-plus/icons-vue'
+import { Clock, Document, Connection, Files, Monitor, Timer, DataAnalysis } from '@element-plus/icons-vue'
 
 const router = useRouter()
 
@@ -56,6 +56,12 @@ const tools = [
     description: '解析Cron表达式并查看执行时间',
     icon: 'Timer',
     path: '/cron'
+  },
+  {
+    title: '数据构造',
+    description: '定时构造 Kafka 消息 / ClickHouse 数据，模板+参数渲染',
+    icon: 'DataAnalysis',
+    path: '/data-construction'
   }
 ]
 
