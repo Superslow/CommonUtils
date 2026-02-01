@@ -254,6 +254,98 @@ def update_user(uid):
         return jsonify({'error': str(e)}), 500
 
 
+# ---------- 站点配置：菜单、公告（管理员可改） ----------
+DEFAULT_MENU_ITEMS = [
+    {'label': '首页', 'path': '/', 'sort_order': 0, 'visible': True},
+    {'label': '时间戳转换', 'path': '/timestamp', 'sort_order': 1, 'visible': True},
+    {'label': 'JSON校验', 'path': '/json', 'sort_order': 2, 'visible': True},
+    {'label': '编码转换', 'path': '/encode', 'sort_order': 3, 'visible': True},
+    {'label': 'MD5计算', 'path': '/md5', 'sort_order': 4, 'visible': True},
+    {'label': 'IP网段', 'path': '/ip', 'sort_order': 5, 'visible': True},
+    {'label': 'Cron解析', 'path': '/cron', 'sort_order': 6, 'visible': True},
+    {'label': '日期格式', 'path': '/date-format', 'sort_order': 7, 'visible': True},
+    {'label': '数据构造', 'path': '/data-construction', 'sort_order': 8, 'visible': True},
+]
+
+
+def _get_site_config(key, default=None):
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT config_value FROM site_config WHERE config_key = %s', (key,))
+                row = cur.fetchone()
+        if row and row.get('config_value'):
+            return json.loads(row['config_value'])
+    except Exception:
+        pass
+    return default
+
+
+def _set_site_config(key, value):
+    val_str = json.dumps(value, ensure_ascii=False)
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                'INSERT INTO site_config (config_key, config_value, updated_at) VALUES (%s, %s, NOW()) '
+                'ON DUPLICATE KEY UPDATE config_value = VALUES(config_value), updated_at = NOW()',
+                (key, val_str)
+            )
+        conn.commit()
+
+
+@app.route('/api/site/menu', methods=['GET'])
+def get_site_menu():
+    """获取菜单配置（顺序、是否可见），不需登录"""
+    items = _get_site_config('menu_items')
+    if not items:
+        items = DEFAULT_MENU_ITEMS
+    items = sorted(items, key=lambda x: x.get('sort_order', 999))
+    return jsonify({'success': True, 'data': items})
+
+
+@app.route('/api/site/menu', methods=['PUT'])
+@require_login
+def update_site_menu():
+    """管理员更新菜单（顺序、是否可见）"""
+    user = get_current_user()
+    if not user.get('is_admin'):
+        return jsonify({'error': '无权限'}), 403
+    data = request.get_json()
+    items = data.get('items') if isinstance(data, dict) else data
+    if not isinstance(items, list):
+        return jsonify({'error': '缺少 items 数组'}), 400
+    for i, it in enumerate(items):
+        if not isinstance(it, dict):
+            continue
+        it['sort_order'] = it.get('sort_order', i)
+        it['visible'] = it.get('visible', True)
+    _set_site_config('menu_items', items)
+    return jsonify({'success': True})
+
+
+@app.route('/api/site/announcement', methods=['GET'])
+def get_site_announcement():
+    """获取当前公告（不需登录）；无新公告时旧公告一直显示"""
+    obj = _get_site_config('announcement')
+    if not obj or not obj.get('content'):
+        return jsonify({'success': True, 'data': None})
+    return jsonify({'success': True, 'data': {'content': obj.get('content'), 'updated_at': obj.get('updated_at')}})
+
+
+@app.route('/api/site/announcement', methods=['POST'])
+@require_login
+def update_site_announcement():
+    """管理员发布公告（一条；不发布新公告则旧公告继续显示）"""
+    user = get_current_user()
+    if not user.get('is_admin'):
+        return jsonify({'error': '无权限'}), 403
+    data = request.get_json() or {}
+    content = (data.get('content') or '').strip()
+    obj = {'content': content, 'updated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+    _set_site_config('announcement', obj)
+    return jsonify({'success': True, 'data': obj})
+
+
 @app.route('/api/timestamp/convert', methods=['POST'])
 def timestamp_convert():
     """时间戳转换"""

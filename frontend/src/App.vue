@@ -1,5 +1,13 @@
 <template>
   <el-container>
+    <el-alert
+      v-if="announcement && announcement.content"
+      type="info"
+      :title="announcement.content"
+      :closable="false"
+      class="app-announcement"
+      show-icon
+    />
     <el-header class="app-header">
       <h1 class="title">通用工具类集合</h1>
       <div class="header-right">
@@ -14,6 +22,8 @@
               <el-dropdown-menu>
                 <el-dropdown-item command="change-password">修改密码</el-dropdown-item>
                 <el-dropdown-item v-if="authUser.is_admin" command="user-management">用户管理</el-dropdown-item>
+                <el-dropdown-item v-if="authUser.is_admin" command="menu-management">菜单管理</el-dropdown-item>
+                <el-dropdown-item v-if="authUser.is_admin" command="announcement">发布公告</el-dropdown-item>
                 <el-dropdown-item divided command="logout">退出</el-dropdown-item>
               </el-dropdown-menu>
             </template>
@@ -40,6 +50,15 @@
         <el-button type="primary" @click="submitChangePassword">确定</el-button>
       </template>
     </el-dialog>
+
+    <!-- 发布公告弹窗 -->
+    <el-dialog v-model="announcementDialogVisible" title="发布公告" width="560px" @close="announcementForm = ''">
+      <el-input v-model="announcementForm" type="textarea" :rows="6" placeholder="输入公告内容，留空可清空公告" />
+      <template #footer>
+        <el-button @click="announcementDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitAnnouncement">发布</el-button>
+      </template>
+    </el-dialog>
     </el-header>
     <el-menu
       :default-active="activeMenu"
@@ -48,15 +67,9 @@
       router
       :ellipsis="false"
     >
-      <el-menu-item index="/">首页</el-menu-item>
-      <el-menu-item index="/timestamp">时间戳转换</el-menu-item>
-      <el-menu-item index="/json">JSON校验</el-menu-item>
-      <el-menu-item index="/encode">编码转换</el-menu-item>
-      <el-menu-item index="/md5">MD5计算</el-menu-item>
-      <el-menu-item index="/ip">IP网段</el-menu-item>
-      <el-menu-item index="/cron">Cron解析</el-menu-item>
-      <el-menu-item index="/date-format">日期格式</el-menu-item>
-      <el-menu-item index="/data-construction">数据构造</el-menu-item>
+      <el-menu-item v-for="item in menuItems" :key="item.path" v-show="item.visible !== false" :index="item.path">
+        {{ item.label }}
+      </el-menu-item>
     </el-menu>
     <el-main class="app-main">
       <router-view />
@@ -65,7 +78,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowDown } from '@element-plus/icons-vue'
@@ -77,6 +90,10 @@ const activeMenu = computed(() => route.path || '/')
 const authUser = ref(null)
 const passwordDialogVisible = ref(false)
 const passwordForm = ref({ old_password: '', new_password: '', confirm_password: '' })
+const menuItems = ref([])
+const announcement = ref(null)
+const announcementDialogVisible = ref(false)
+const announcementForm = ref('')
 
 function getToken() {
   try {
@@ -116,7 +133,66 @@ function handleUserCommand(cmd) {
   }
   if (cmd === 'user-management') {
     router.push('/user-management')
+    return
   }
+  if (cmd === 'menu-management') {
+    router.push('/menu-management')
+    return
+  }
+  if (cmd === 'announcement') {
+    announcementForm.value = announcement.value?.content || ''
+    announcementDialogVisible.value = true
+  }
+}
+
+function loadMenu() {
+  api.get('/site/menu').then(r => {
+    if (r.success && r.data && r.data.length) menuItems.value = r.data
+    else menuItems.value = [
+      { label: '首页', path: '/', sort_order: 0, visible: true },
+      { label: '时间戳转换', path: '/timestamp', sort_order: 1, visible: true },
+      { label: 'JSON校验', path: '/json', sort_order: 2, visible: true },
+      { label: '编码转换', path: '/encode', sort_order: 3, visible: true },
+      { label: 'MD5计算', path: '/md5', sort_order: 4, visible: true },
+      { label: 'IP网段', path: '/ip', sort_order: 5, visible: true },
+      { label: 'Cron解析', path: '/cron', sort_order: 6, visible: true },
+      { label: '日期格式', path: '/date-format', sort_order: 7, visible: true },
+      { label: '数据构造', path: '/data-construction', sort_order: 8, visible: true }
+    ]
+  }).catch(() => {
+    menuItems.value = [
+      { label: '首页', path: '/', sort_order: 0, visible: true },
+      { label: '时间戳转换', path: '/timestamp', sort_order: 1, visible: true },
+      { label: 'JSON校验', path: '/json', sort_order: 2, visible: true },
+      { label: '编码转换', path: '/encode', sort_order: 3, visible: true },
+      { label: 'MD5计算', path: '/md5', sort_order: 4, visible: true },
+      { label: 'IP网段', path: '/ip', sort_order: 5, visible: true },
+      { label: 'Cron解析', path: '/cron', sort_order: 6, visible: true },
+      { label: '日期格式', path: '/date-format', sort_order: 7, visible: true },
+      { label: '数据构造', path: '/data-construction', sort_order: 8, visible: true }
+    ]
+  })
+}
+
+function loadAnnouncement() {
+  api.get('/site/announcement').then(r => {
+    if (r.success && r.data) announcement.value = r.data
+    else announcement.value = null
+  }).catch(() => { announcement.value = null })
+}
+
+function submitAnnouncement() {
+  api.post('/site/announcement', { content: announcementForm.value })
+    .then(r => {
+      if (r.success) {
+        ElMessage.success('公告已发布')
+        announcementDialogVisible.value = false
+        loadAnnouncement()
+      } else {
+        ElMessage.error(r.error || '发布失败')
+      }
+    })
+    .catch(e => ElMessage.error(e.response?.data?.error || e.message || '发布失败'))
 }
 
 function resetPasswordForm() {
@@ -150,7 +226,15 @@ function submitChangePassword() {
     .catch(e => ElMessage.error(e.response?.data?.error || e.message || '修改失败'))
 }
 
-onMounted(loadAuthUser)
+onMounted(() => {
+  loadAuthUser()
+  loadMenu()
+  loadAnnouncement()
+  window.addEventListener('site-menu-updated', loadMenu)
+})
+onUnmounted(() => {
+  window.removeEventListener('site-menu-updated', loadMenu)
+})
 watch(() => route.path, loadAuthUser)
 </script>
 
@@ -211,6 +295,11 @@ body {
 
 .app-menu .el-menu-item {
   font-size: 14px;
+}
+
+.app-announcement {
+  border-radius: 0;
+  margin: 0;
 }
 
 .app-main {

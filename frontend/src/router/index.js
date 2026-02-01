@@ -10,6 +10,7 @@ import DateFormatPreview from '../views/DateFormatPreview.vue'
 import DataConstruction from '../views/DataConstruction.vue'
 import Login from '../views/Login.vue'
 import UserManagement from '../views/UserManagement.vue'
+import MenuManagement from '../views/MenuManagement.vue'
 
 function getToken() {
   try {
@@ -75,6 +76,12 @@ const routes = [
     path: '/user-management',
     name: 'UserManagement',
     component: UserManagement,
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/menu-management',
+    name: 'MenuManagement',
+    component: MenuManagement,
     meta: { requiresAuth: true }
   }
 ]
