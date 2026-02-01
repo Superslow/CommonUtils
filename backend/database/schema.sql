@@ -86,6 +86,15 @@ CREATE TABLE IF NOT EXISTS kafka_certs (
     INDEX idx_name (name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
+-- 调度抢占表（多进程下同一计划时间只允许一个进程执行，避免重复跑）
+CREATE TABLE IF NOT EXISTS data_task_schedule_claims (
+    task_id INT NOT NULL,
+    schedule_key_ts BIGINT NOT NULL COMMENT '计划执行时间戳(秒)',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (task_id, schedule_key_ts),
+    FOREIGN KEY (task_id) REFERENCES data_tasks(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
 -- 任务执行记录表
 CREATE TABLE IF NOT EXISTS task_executions (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
