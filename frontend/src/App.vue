@@ -16,7 +16,7 @@
           <el-dropdown trigger="click" @command="handleUserCommand">
             <span class="header-user-dropdown">
               {{ authUser.username }}
-              <el-tag v-if="authUser.is_admin" class="admin-vip-tag" size="small">VIP 管理员</el-tag>
+              <el-tag v-if="authUser.is_admin" class="admin-tag" size="small">管理员</el-tag>
               <el-icon class="el-icon--right"><arrow-down /></el-icon>
             </span>
             <template #dropdown>
@@ -313,15 +313,14 @@ body {
   color: rgba(255, 255, 255, 0.95);
 }
 
-/* 金色 VIP 管理员标识 */
-.admin-vip-tag {
-  background: linear-gradient(135deg, #d4af37 0%, #f4e4a6 50%, #c9a227 100%) !important;
-  border: 1px solid rgba(255, 215, 0, 0.6) !important;
-  color: #2c1810 !important;
-  font-weight: 600;
+/* 管理员标识：普通黄色 */
+.admin-tag {
+  background: #e6a23c !important;
+  border-color: #d89b36 !important;
+  color: #fff !important;
 }
-.header-right .admin-vip-tag {
-  color: #2c1810 !important;
+.header-right .admin-tag {
+  color: #fff !important;
 }
 
 .header-user-dropdown {

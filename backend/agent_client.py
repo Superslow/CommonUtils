@@ -74,5 +74,9 @@ def execute_on_agent(url, token, task_type, task_data, batch_no=1):
         raise Exception(f'Agent error: {resp.status_code} {resp.text}')
     data = resp.json()
     if not data.get('success'):
-        raise Exception(data.get('error', 'Unknown error'))
+        err = data.get('error', 'Unknown error')
+        tb = data.get('traceback', '')
+        if tb:
+            err = err + '\n\n--- 堆栈 ---\n' + tb
+        raise Exception(err)
     return data.get('result', {})
