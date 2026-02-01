@@ -95,9 +95,6 @@
           <template #label>Token</template>
           <el-input v-model="agentForm.token" type="password" :placeholder="editingAgent ? '编辑时留空则保持原 Token' : 'Agent 启动时控制台输出的 Token'" show-password />
         </el-form-item>
-        <el-form-item label="Kafka 配置">
-          <el-input v-model="agentForm.kafkaConfigStr" type="textarea" :rows="4" placeholder='可选，JSON，如 {"bootstrap_servers":"localhost:9092","topic":"test"}' />
-        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="agentDialogVisible = false">取消</el-button>
@@ -365,8 +362,8 @@ watch(activeTab, (t) => {
 function showAgentDialog(row) {
   editingAgent.value = row || null
   agentForm.value = row
-    ? { name: row.name, url: row.url, token: '', kafkaConfigStr: (row.kafka_config && typeof row.kafka_config === 'object') ? JSON.stringify(row.kafka_config, null, 2) : '' }
-    : { name: '', url: '', token: '', kafkaConfigStr: '' }
+    ? { name: row.name, url: row.url, token: '' }
+    : { name: '', url: '', token: '' }
   agentDialogVisible.value = true
 }
 
@@ -378,9 +375,6 @@ function submitAgent() {
   }
   const payload = { name: agentForm.value.name, url: agentForm.value.url }
   if (token) payload.token = token
-  if (agentForm.value.kafkaConfigStr.trim()) {
-    try { payload.kafka_config = JSON.parse(agentForm.value.kafkaConfigStr) } catch (e) { ElMessage.error('Kafka 配置不是合法 JSON'); return }
-  }
   const req = editingAgent.value
     ? api.put(`/agents/${editingAgent.value.id}`, payload)
     : api.post('/agents', payload)
