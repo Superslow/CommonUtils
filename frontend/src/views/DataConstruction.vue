@@ -45,18 +45,6 @@
           </el-table-column>
         </el-table>
       </el-tab-pane>
-      <el-tab-pane v-if="currentUser?.is_admin" label="用户管理" name="users">
-        <el-table :data="users" border style="width: 100%; margin-top: 16px;">
-          <el-table-column prop="id" label="ID" width="80" />
-          <el-table-column prop="username" label="用户名" width="140" />
-          <el-table-column prop="is_admin" label="管理员" width="90">
-            <template #default="{ row }">
-              <el-tag :type="row.is_admin ? 'danger' : 'info'">{{ row.is_admin ? '是' : '否' }}</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column prop="created_at" label="注册时间" width="180" />
-        </el-table>
-      </el-tab-pane>
     </el-tabs>
 
     <!-- Agent 弹窗 -->
@@ -236,7 +224,6 @@ const activeTab = ref('agents')
 const currentUser = ref(null)
 const agents = ref([])
 const tasks = ref([])
-const users = ref([])
 const agentDialogVisible = ref(false)
 const editingAgent = ref(null)
 const agentForm = ref({ name: '', url: '', token: '', kafkaConfigStr: '' })
@@ -273,7 +260,6 @@ function loadCurrentUser() {
 
 const loadAgents = () => api.get('/agents').then(r => { if (r.success) agents.value = r.data })
 const loadTasks = () => api.get('/data-tasks').then(r => { if (r.success) tasks.value = r.data })
-const loadUsers = () => api.get('/users').then(r => { if (r.success) users.value = r.data })
 
 onMounted(() => {
   if (!getToken() || !getToken().trim()) {
@@ -298,7 +284,6 @@ watch(activeTab, (t) => {
       agentsPollTimer = null
     }
     if (t === 'tasks') loadTasks()
-    else if (t === 'users') loadUsers()
   }
 }, { immediate: true })
 

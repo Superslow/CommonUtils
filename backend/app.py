@@ -180,6 +180,34 @@ def auth_me():
     return jsonify({'success': True, 'data': user})
 
 
+@app.route('/api/auth/change-password', methods=['POST'])
+@require_login
+def change_password():
+    """当前用户修改自己的密码"""
+    user = get_current_user()
+    data = request.get_json() or {}
+    old_password = data.get('old_password') or ''
+    new_password = data.get('new_password') or ''
+    if not old_password or not new_password:
+        return jsonify({'error': '请填写原密码和新密码'}), 400
+    if len(new_password) < 6:
+        return jsonify({'error': '新密码至少 6 位'}), 400
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT password_hash FROM users WHERE id = %s', (user['id'],))
+                row = cur.fetchone()
+            if not row or not check_password_hash(row['password_hash'], old_password):
+                return jsonify({'error': '原密码错误'}), 400
+            pw_hash = generate_password_hash(new_password, method='pbkdf2:sha256')
+            with conn.cursor() as cur:
+                cur.execute('UPDATE users SET password_hash = %s WHERE id = %s', (pw_hash, user['id']))
+        conn.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/users', methods=['GET'])
 @require_login
 def list_users():
@@ -198,6 +226,30 @@ def list_users():
             u['created_at'] = u['created_at'].isoformat() if u.get('created_at') else None
             users.append(u)
         return jsonify({'success': True, 'data': users})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/users/<int:uid>', methods=['PUT'])
+@require_login
+def update_user(uid):
+    """管理员修改用户（目前仅支持设置/取消管理员）"""
+    user = get_current_user()
+    if not user.get('is_admin'):
+        return jsonify({'error': '无权限'}), 403
+    data = request.get_json() or {}
+    is_admin = data.get('is_admin')
+    if is_admin is None:
+        return jsonify({'error': '缺少 is_admin 参数'}), 400
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT id FROM users WHERE id = %s', (uid,))
+                if not cur.fetchone():
+                    return jsonify({'error': '用户不存在'}), 404
+                cur.execute('UPDATE users SET is_admin = %s WHERE id = %s', (1 if is_admin else 0, uid))
+        conn.commit()
+        return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

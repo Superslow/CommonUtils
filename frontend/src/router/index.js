@@ -8,6 +8,7 @@ import IPChecker from '../views/IPChecker.vue'
 import CronParser from '../views/CronParser.vue'
 import DataConstruction from '../views/DataConstruction.vue'
 import Login from '../views/Login.vue'
+import UserManagement from '../views/UserManagement.vue'
 
 function getToken() {
   try {
@@ -62,6 +63,12 @@ const routes = [
     path: '/data-construction',
     name: 'DataConstruction',
     component: DataConstruction,
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/user-management',
+    name: 'UserManagement',
+    component: UserManagement,
     meta: { requiresAuth: true }
   }
 ]
