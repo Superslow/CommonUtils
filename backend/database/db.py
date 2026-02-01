@@ -110,6 +110,20 @@ def migrate_db(conn=None):
                 cursor.execute(
                     "ALTER TABLE data_tasks ADD COLUMN stop_reason VARCHAR(255) NULL DEFAULT NULL COMMENT '自动停止原因，如连续失败超过3次' AFTER status"
                 )
+            cursor.execute(
+                "SELECT COUNT(*) AS n FROM information_schema.TABLES WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'kafka_certs'",
+                (MYSQL_DATABASE,)
+            )
+            if cursor.fetchone()['n'] == 0:
+                cursor.execute("""
+                    CREATE TABLE kafka_certs (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        name VARCHAR(100) NOT NULL COMMENT '证书名称（展示与选择用）',
+                        content LONGTEXT NOT NULL COMMENT 'PEM 证书内容',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        INDEX idx_name (name)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8
+                """)
         conn.commit()
     finally:
         if close_conn:

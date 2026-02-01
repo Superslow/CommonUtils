@@ -8,6 +8,8 @@ import hashlib
 import traceback
 import platform
 import socket
+import tempfile
+import os
 from functools import wraps
 from datetime import datetime
 from flask import Flask, request, jsonify
@@ -99,6 +101,7 @@ def execute_kafka(task_data, batch_no):
 
     if security_protocol in ('SSL', 'SASL_SSL') and config.get('ssl_cafile'):
         producer_config['ssl_cafile'] = config['ssl_cafile']
+        producer_config['ssl_check_hostname'] = False
 
     try:
         producer = KafkaProducer(**producer_config)
@@ -115,7 +118,12 @@ def execute_kafka(task_data, batch_no):
         producer.flush()
     finally:
         producer.close()
-    
+        if ssl_cafile_path and os.path.isfile(ssl_cafile_path):
+            try:
+                os.remove(ssl_cafile_path)
+            except Exception:
+                pass
+
     return {'sent_count': sent_count, 'topic': topic}
 
 

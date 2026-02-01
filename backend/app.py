@@ -1185,6 +1185,28 @@ def list_task_executions(tid):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/data-tasks/<int:tid>/executions', methods=['DELETE'])
+@require_login
+def clear_task_executions(tid):
+    """清空该任务的历史执行记录（仅任务创建者或管理员）"""
+    user = get_current_user()
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT creator_user_id FROM data_tasks WHERE id = %s', (tid,))
+                row = cur.fetchone()
+            if not row:
+                return jsonify({'error': '任务不存在'}), 404
+            cid = row.get('creator_user_id')
+            if not user.get('is_admin') and (cid is None or cid != user['id']):
+                return jsonify({'error': '无权限'}), 403
+            with conn.cursor() as cur:
+                cur.execute('DELETE FROM task_executions WHERE task_id = %s', (tid,))
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 def run_task_once(task_id):
     """执行一次任务并记录结果"""
     batch_no = 1
@@ -1216,6 +1238,15 @@ def run_task_once(task_id):
         if task_type == 'kafka':
             messages = render_kafka_messages(template_content, param_config, batch_size, batch_no)
             conn_cfg = connector_config.get('kafka') or {}
+            ssl_cafile = conn_cfg.get('ssl_cafile')
+            ssl_cafile_id = conn_cfg.get('ssl_cafile_id')
+            if ssl_cafile_id is not None:
+                with get_db() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute('SELECT content FROM kafka_certs WHERE id = %s', (ssl_cafile_id,))
+                        row = cur.fetchone()
+                if row:
+                    ssl_cafile = row['content']
             task_data = {
                 'bootstrap_servers': conn_cfg.get('bootstrap_servers', 'localhost:9092'),
                 'topic': conn_cfg.get('topic', ''),
@@ -1225,7 +1256,7 @@ def run_task_once(task_id):
                     'username': conn_cfg.get('username'),
                     'password': conn_cfg.get('password'),
                     'sasl_mechanism': conn_cfg.get('sasl_mechanism', 'PLAIN'),
-                    'ssl_cafile': conn_cfg.get('ssl_cafile'),
+                    'ssl_cafile': ssl_cafile,
                 }
             }
         else:
@@ -1338,7 +1369,74 @@ def start_agent_status_refresh():
         _agent_status_thread.start()
 
 
-# ---------- 证书上传（Kafka） ----------
+# ---------- Kafka 证书管理 ----------
+@app.route('/api/kafka-certs', methods=['GET'])
+@require_login
+def list_kafka_certs():
+    """Kafka 证书列表（仅 id/name/created_at，不含内容）"""
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT id, name, created_at FROM kafka_certs ORDER BY id')
+                rows = cur.fetchall()
+        items = [{'id': r['id'], 'name': r['name'], 'created_at': r['created_at'].isoformat() if r.get('created_at') else None} for r in rows]
+        return jsonify({'success': True, 'data': items})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/kafka-certs', methods=['POST'])
+@require_login
+def create_kafka_cert():
+    """上传 Kafka 证书（仅管理员）"""
+    user = get_current_user()
+    if not user.get('is_admin'):
+        return jsonify({'error': '仅管理员可上传证书'}), 403
+    if 'file' not in request.files:
+        return jsonify({'error': '未选择文件'}), 400
+    f = request.files['file']
+    if f.filename == '':
+        return jsonify({'error': '未选择文件'}), 400
+    name = (request.form.get('name') or '').strip() or os.path.splitext(os.path.basename(f.filename))[0]
+    if not name:
+        return jsonify({'error': '证书名称不能为空'}), 400
+    try:
+        content = f.read().decode('utf-8', errors='replace')
+    except Exception as e:
+        return jsonify({'error': f'读取文件失败: {e}'}), 400
+    if not content.strip():
+        return jsonify({'error': '证书内容为空'}), 400
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('INSERT INTO kafka_certs (name, content) VALUES (%s, %s)', (name, content))
+                cert_id = cur.lastrowid
+            conn.commit()
+        return jsonify({'success': True, 'data': {'id': cert_id, 'name': name}})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/kafka-certs/<int:cid>', methods=['DELETE'])
+@require_login
+def delete_kafka_cert(cid):
+    """删除 Kafka 证书（仅管理员）"""
+    user = get_current_user()
+    if not user.get('is_admin'):
+        return jsonify({'error': '仅管理员可删除证书'}), 403
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('DELETE FROM kafka_certs WHERE id = %s', (cid,))
+                if cur.rowcount == 0:
+                    return jsonify({'error': '证书不存在'}), 404
+            conn.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ---------- 证书上传（Kafka，兼容旧用法） ----------
 @app.route('/api/upload/cert', methods=['POST'])
 @require_login
 def upload_cert():
