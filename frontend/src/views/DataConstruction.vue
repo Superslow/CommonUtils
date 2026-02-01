@@ -4,6 +4,7 @@
       <el-tab-pane label="Agent 管理" name="agents">
         <div class="toolbar-row">
           <el-button type="primary" @click="showAgentDialog()">新增 Agent</el-button>
+          <el-button @click="loadAgents">刷新</el-button>
           <span class="status-hint">状态每 30 秒自动更新</span>
         </div>
         <el-table :data="agents" border class="single-line-table" style="width: 100%; margin-top: 16px;">
@@ -31,6 +32,7 @@
       <el-tab-pane label="数据构造任务" name="tasks">
         <div class="toolbar-row">
           <el-button type="primary" @click="showTaskDialog()">新增任务</el-button>
+          <el-button @click="loadTasks">刷新</el-button>
         </div>
         <el-table :data="tasks" border class="single-line-table" style="width: 100%; margin-top: 16px;">
           <el-table-column prop="name" label="任务名" width="140" show-overflow-tooltip />
@@ -225,7 +227,8 @@
     <!-- 执行记录弹窗 -->
     <el-dialog v-model="executionsDialogVisible" title="执行记录" width="900px" :close-on-click-modal="false" @open="currentTaskId && loadExecutions()">
       <div class="executions-toolbar">
-        <el-button type="primary" link @click="loadExecutions" :disabled="!currentTaskId">刷新</el-button>
+        <el-button type="primary" @click="loadExecutions" :disabled="!currentTaskId">刷新</el-button>
+        <el-button type="warning" @click="clearExecutions" :disabled="!currentTaskId">清空</el-button>
       </div>
       <el-table :data="executions" border max-height="400">
         <el-table-column prop="batch_no" label="批次" width="80" />
@@ -506,7 +509,27 @@ function loadExecutions() {
   if (!currentTaskId.value) return
   api.get(`/data-tasks/${currentTaskId.value}/executions`).then(r => {
     if (r.success) executions.value = r.data
-  })
+  }).catch(() => { executions.value = [] })
+}
+
+function clearExecutions() {
+  if (!currentTaskId.value) return
+  ElMessageBox.confirm('确定清空该任务的全部历史执行记录吗？清空后可减轻数据库压力。', '清空执行记录', {
+    confirmButtonText: '确定',
+    cancelButtonText: '取消',
+    type: 'warning'
+  }).then(() => {
+    api.delete(`/data-tasks/${currentTaskId.value}/executions`)
+      .then(r => {
+        if (r.success) {
+          ElMessage.success('已清空')
+          loadExecutions()
+        } else {
+          ElMessage.error(r.error || '清空失败')
+        }
+      })
+      .catch(e => ElMessage.error(e.response?.data?.error || e.message || '清空失败'))
+  }).catch(() => {})
 }
 </script>
 
@@ -554,6 +577,9 @@ function loadExecutions() {
 }
 .executions-toolbar {
   margin-bottom: 12px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
 }
 
 .status-cell {
