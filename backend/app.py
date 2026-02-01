@@ -1245,9 +1245,18 @@ def run_task_once(task_id):
         param_config = task.get('param_config')
         if isinstance(param_config, str):
             param_config = json.loads(param_config) if param_config else []
-        connector_config = task.get('connector_config') or {}
-        if isinstance(connector_config, str):
-            connector_config = json.loads(connector_config) or {}
+        raw_cc = task.get('connector_config')
+        connector_config = {}
+        if raw_cc:
+            if isinstance(raw_cc, bytes):
+                raw_cc = raw_cc.decode('utf-8', errors='replace')
+            if isinstance(raw_cc, str):
+                try:
+                    connector_config = json.loads(raw_cc) or {}
+                except Exception:
+                    connector_config = {}
+            elif isinstance(raw_cc, dict):
+                connector_config = raw_cc
         batch_size = task.get('batch_size') or 1
         with get_db() as conn:
             with conn.cursor() as cur:
@@ -1284,13 +1293,19 @@ def run_task_once(task_id):
             conn_cfg = connector_config.get('clickhouse') or {}
             ch_user = conn_cfg.get('user')
             ch_password = conn_cfg.get('password')
+            ch_user = (ch_user if ch_user is not None else '') or 'default'
+            ch_password = ch_password if ch_password is not None else ''
+            if not isinstance(ch_user, str):
+                ch_user = str(ch_user)
+            if not isinstance(ch_password, str):
+                ch_password = str(ch_password)
             task_data = {
                 'host': conn_cfg.get('host', 'localhost'),
                 'port': conn_cfg.get('port', 9000),
                 'sqls': sqls,
                 'config': {
-                    'user': (ch_user or 'default') if ch_user is not None else 'default',
-                    'password': ch_password if ch_password is not None else ''
+                    'user': ch_user.strip() or 'default',
+                    'password': ch_password
                 }
             }
         result = execute_on_agent(agent['url'], agent['token'], task_type, task_data, batch_no)

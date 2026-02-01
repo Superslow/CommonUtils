@@ -187,32 +187,38 @@ def execute_clickhouse(task_data, batch_no):
     host = task_data.get('host', 'localhost')
     port = task_data.get('port', 9000)
     sqls = task_data.get('sqls', [])
-    config = task_data.get('config', {})
+    config = task_data.get('config', {}) or {}
     
     if not sqls:
         raise ValueError('Missing sqls')
     
-    user = config.get('user')
-    password = config.get('password')
+    user = config.get('user') or config.get('username')
+    password = config.get('password') or config.get('passwd')
     if user is None:
         user = 'default'
     if password is None:
         password = ''
-    user = str(user).strip() or 'default'
-    password = str(password)
-    client = Client(
-        host=host,
-        port=port,
-        user=user,
-        password=password
-    )
-    
-    executed = 0
-    for sql in sqls:
-        client.execute(sql)
-        executed += 1
-    
-    return {'executed_sqls': executed, 'host': host}
+    user = str(user).strip() if user else 'default'
+    user = user or 'default'
+    password = str(password) if password is not None else ''
+    try:
+        client = Client(
+            host=host,
+            port=int(port) if port is not None else 9000,
+            user=user,
+            password=password
+        )
+        executed = 0
+        for sql in sqls:
+            client.execute(sql)
+            executed += 1
+        return {'executed_sqls': executed, 'host': host}
+    except Exception as e:
+        err_msg = str(e)
+        if 'password' in err_msg.lower() and ('incorrect' in err_msg.lower() or 'no user' in err_msg.lower()):
+            hint = ' (收到密码长度: %d，若为 0 表示未传到 Agent)' % len(password)
+            raise RuntimeError(err_msg + hint) from e
+        raise
 
 
 if __name__ == '__main__':
