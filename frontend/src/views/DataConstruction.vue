@@ -2,11 +2,13 @@
   <div class="data-construction-page">
     <el-tabs v-model="activeTab">
       <el-tab-pane label="Agent 管理" name="agents">
-        <el-button type="primary" @click="showAgentDialog()">新增 Agent</el-button>
-        <span class="status-hint">状态每 30 秒自动更新</span>
-        <el-table :data="agents" border style="width: 100%; margin-top: 16px;">
+        <div class="toolbar-row">
+          <el-button type="primary" @click="showAgentDialog()">新增 Agent</el-button>
+          <span class="status-hint">状态每 30 秒自动更新</span>
+        </div>
+        <el-table :data="agents" border class="single-line-table" style="width: 100%; margin-top: 16px;">
           <el-table-column prop="name" label="名称" width="120" />
-          <el-table-column prop="url" label="URL" min-width="200" />
+          <el-table-column prop="url" label="URL" min-width="200" show-overflow-tooltip />
           <el-table-column prop="status" label="状态" width="100">
             <template #default="{ row }">
               <el-tag :type="row.status === 'online' ? 'success' : row.status === 'offline' ? 'danger' : 'info'" size="small">
@@ -14,33 +16,39 @@
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="180" fixed="right">
+          <el-table-column label="操作" width="180" fixed="right" align="left">
             <template #default="{ row }">
-              <el-button link type="primary" @click="checkAgentRow(row)">校验</el-button>
-              <el-button v-if="row.is_owner" link type="primary" @click="showAgentDialog(row)">编辑</el-button>
-              <el-button v-if="row.is_owner" link type="danger" @click="deleteAgent(row)">删除</el-button>
+              <span class="op-cell">
+                <el-button link type="primary" @click="checkAgentRow(row)">校验</el-button>
+                <el-button v-if="row.is_owner" link type="primary" @click="showAgentDialog(row)">编辑</el-button>
+                <el-button v-if="row.is_owner" link type="danger" @click="deleteAgent(row)">删除</el-button>
+              </span>
             </template>
           </el-table-column>
         </el-table>
       </el-tab-pane>
 
       <el-tab-pane label="数据构造任务" name="tasks">
-        <el-button type="primary" @click="showTaskDialog()">新增任务</el-button>
-        <el-table :data="tasks" border style="width: 100%; margin-top: 16px;">
-          <el-table-column prop="name" label="任务名" width="140" />
+        <div class="toolbar-row">
+          <el-button type="primary" @click="showTaskDialog()">新增任务</el-button>
+        </div>
+        <el-table :data="tasks" border class="single-line-table" style="width: 100%; margin-top: 16px;">
+          <el-table-column prop="name" label="任务名" width="140" show-overflow-tooltip />
           <el-table-column prop="task_type" label="类型" width="100" />
-          <el-table-column prop="cron_expr" label="Cron" width="120" />
+          <el-table-column prop="cron_expr" label="Cron" width="120" show-overflow-tooltip />
           <el-table-column prop="batch_size" label="每批条数" width="90" />
-          <el-table-column prop="agent_name" label="Agent" width="120" />
+          <el-table-column prop="agent_name" label="Agent" width="120" show-overflow-tooltip />
           <el-table-column v-if="currentUser?.is_admin" prop="creator_username" label="创建者" width="100" />
           <el-table-column prop="status" label="状态" width="80" />
-          <el-table-column label="操作" width="260" fixed="right">
+          <el-table-column label="操作" width="340" min-width="340" fixed="right" align="left">
             <template #default="{ row }">
-              <el-button v-if="row.is_owner" link type="success" @click="startTask(row)" :disabled="row.status === 'running'">启动</el-button>
-              <el-button v-if="row.is_owner" link type="warning" @click="stopTask(row)" :disabled="row.status !== 'running'">停止</el-button>
-              <el-button link type="primary" @click="showExecutions(row)">执行记录</el-button>
-              <el-button v-if="row.is_owner" link type="primary" @click="showTaskDialog(row)">编辑</el-button>
-              <el-button v-if="row.is_owner" link type="danger" @click="deleteTask(row)">删除</el-button>
+              <span class="op-cell">
+                <el-button v-if="row.is_owner" link type="success" @click="startTask(row)" :disabled="row.status === 'running'">启动</el-button>
+                <el-button v-if="row.is_owner" link type="warning" @click="stopTask(row)" :disabled="row.status !== 'running'">停止</el-button>
+                <el-button link type="primary" @click="showExecutions(row)">执行记录</el-button>
+                <el-button v-if="row.is_owner" link type="primary" @click="showTaskDialog(row)">编辑</el-button>
+                <el-button v-if="row.is_owner" link type="danger" @click="deleteTask(row)">删除</el-button>
+              </span>
             </template>
           </el-table-column>
         </el-table>
@@ -48,7 +56,7 @@
     </el-tabs>
 
     <!-- Agent 弹窗 -->
-    <el-dialog v-model="agentDialogVisible" :title="editingAgent ? '编辑 Agent' : '新增 Agent'" width="560px">
+    <el-dialog v-model="agentDialogVisible" :title="editingAgent ? '编辑 Agent' : '新增 Agent'" width="560px" :close-on-click-modal="false">
       <el-form :model="agentForm" label-width="100px">
         <el-form-item label="名称" required>
           <el-input v-model="agentForm.name" placeholder="Agent 名称" />
@@ -71,7 +79,7 @@
     </el-dialog>
 
     <!-- 校验 Agent 弹窗 -->
-    <el-dialog v-model="checkDialogVisible" title="校验 Agent" width="400px">
+    <el-dialog v-model="checkDialogVisible" title="校验 Agent" width="400px" :close-on-click-modal="false">
       <el-form label-width="80px">
         <el-form-item label="URL">
           <el-input v-model="checkForm.url" placeholder="http://host:5001" />
@@ -88,7 +96,7 @@
     </el-dialog>
 
     <!-- 任务弹窗 -->
-    <el-dialog v-model="taskDialogVisible" :title="editingTask ? '编辑任务' : '新增任务'" width="900px">
+    <el-dialog v-model="taskDialogVisible" :title="editingTask ? '编辑任务' : '新增任务'" width="900px" :close-on-click-modal="false">
       <el-form :model="taskForm" label-width="120px">
         <el-form-item label="任务名称" required>
           <el-input v-model="taskForm.name" placeholder="任务名称" />
@@ -100,7 +108,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="Cron 表达式" required>
-          <el-input v-model="taskForm.cron_expr" placeholder="5 字段：* * * * * 每分钟；6 字段 Quartz：0 * * * * ? 每分钟" />
+          <el-input v-model="taskForm.cron_expr" placeholder="6 字段 Quartz 示例：0/1 * * * * ? 每秒；0 * * * * ? 每分钟" />
         </el-form-item>
         <el-form-item label="每批条数" required>
           <el-input-number v-model="taskForm.batch_size" :min="1" :max="1000" />
@@ -206,7 +214,10 @@
     </el-dialog>
 
     <!-- 执行记录弹窗 -->
-    <el-dialog v-model="executionsDialogVisible" title="执行记录" width="800px">
+    <el-dialog v-model="executionsDialogVisible" title="执行记录" width="900px" :close-on-click-modal="false" @open="currentTaskId && loadExecutions()">
+      <div class="executions-toolbar">
+        <el-button type="primary" link @click="loadExecutions" :disabled="!currentTaskId">刷新</el-button>
+      </div>
       <el-table :data="executions" border max-height="400">
         <el-table-column prop="batch_no" label="批次" width="80" />
         <el-table-column prop="executed_at" label="执行时间" width="180" />
@@ -214,7 +225,7 @@
           <template #default="{ row }">{{ row.success ? '是' : '否' }}</template>
         </el-table-column>
         <el-table-column prop="records_count" label="条数" width="80" />
-        <el-table-column prop="result_message" label="结果" show-overflow-tooltip />
+        <el-table-column prop="result_message" label="结果" min-width="200" show-overflow-tooltip />
       </el-table>
     </el-dialog>
   </div>
@@ -241,7 +252,7 @@ const checkResult = ref(null)
 const taskDialogVisible = ref(false)
 const editingTask = ref(null)
 const taskForm = ref({
-  name: '', task_type: 'kafka', cron_expr: '* * * * *', batch_size: 1, agent_id: null,
+  name: '', task_type: 'kafka', cron_expr: '0/1 * * * * ?', batch_size: 1, agent_id: null,
   template_content: '',
   kafkaBootstrap: '', kafkaTopic: '', kafkaSecurityProtocol: 'PLAINTEXT',
   kafkaUsername: '', kafkaPassword: '', kafkaSaslMechanism: 'PLAIN',
@@ -361,7 +372,7 @@ function showTaskDialog(row) {
     }
   } else {
     taskForm.value = {
-      name: '', task_type: 'kafka', cron_expr: '* * * * *', batch_size: 1, agent_id: null, template_content: '',
+      name: '', task_type: 'kafka', cron_expr: '0/1 * * * * ?', batch_size: 1, agent_id: null, template_content: '',
       kafkaBootstrap: '', kafkaTopic: '', kafkaSecurityProtocol: 'PLAINTEXT',
       kafkaUsername: '', kafkaPassword: '', kafkaSaslMechanism: 'PLAIN',
       kafkaSslCafile: '',
@@ -478,7 +489,15 @@ function deleteTask(row) {
 
 function showExecutions(row) {
   currentTaskId.value = row.id
-  api.get(`/data-tasks/${row.id}/executions`).then(r => { if (r.success) executions.value = r.data; executionsDialogVisible.value = true })
+  executionsDialogVisible.value = true
+  loadExecutions()
+}
+
+function loadExecutions() {
+  if (!currentTaskId.value) return
+  api.get(`/data-tasks/${currentTaskId.value}/executions`).then(r => {
+    if (r.success) executions.value = r.data
+  })
 }
 </script>
 
@@ -515,5 +534,29 @@ function showExecutions(row) {
   font-size: 12px;
   color: #909399;
   line-height: 1.5;
+}
+
+.toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+.executions-toolbar {
+  margin-bottom: 12px;
+}
+
+/* 1920 下表格单行展开，操作列不换行 */
+.single-line-table .op-cell {
+  white-space: nowrap;
+}
+.single-line-table :deep(.el-table__cell) {
+  white-space: nowrap;
+}
+.single-line-table :deep(.el-table__cell .el-text) {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 </style>

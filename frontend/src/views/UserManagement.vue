@@ -7,14 +7,16 @@
       <el-table :data="users" border style="width: 100%;">
         <el-table-column prop="id" label="ID" width="80" />
         <el-table-column prop="username" label="用户名" width="160" />
-        <el-table-column label="管理员" width="120">
+        <el-table-column label="管理员" width="160" class-name="admin-col">
           <template #default="{ row }">
-            <el-switch
-              :model-value="!!row.is_admin"
-              :disabled="row.id === currentUserId"
-              @change="(v) => setAdmin(row.id, v)"
-            />
-            <span v-if="row.id === currentUserId" class="self-hint">（当前用户）</span>
+            <span class="admin-cell">
+              <el-switch
+                :model-value="!!row.is_admin"
+                :disabled="row.id === currentUserId"
+                @change="(v) => setAdmin(row.id, v)"
+              />
+              <span v-if="row.id === currentUserId" class="self-hint">（当前用户）</span>
+            </span>
           </template>
         </el-table-column>
         <el-table-column prop="created_at" label="注册时间" width="180" />
@@ -65,6 +67,9 @@ onMounted(loadUsers)
   margin: 0 auto;
 }
 
+.admin-cell {
+  white-space: nowrap;
+}
 .self-hint {
   margin-left: 8px;
   font-size: 12px;

@@ -5,7 +5,7 @@
         <span>菜单管理</span>
       </template>
       <p class="desc">调整菜单顺序与是否在顶栏显示。拖拽行可调整顺序。</p>
-      <el-table :data="menuItems" border row-key="path" style="width: 100%">
+      <el-table :data="menuItems" border row-key="path" class="menu-table" style="width: 100%">
         <el-table-column type="index" label="序号" width="60" />
         <el-table-column prop="label" label="名称" width="140" />
         <el-table-column prop="path" label="路径" width="180" />
@@ -14,10 +14,12 @@
             <el-switch v-model="row.visible" />
           </template>
         </el-table-column>
-        <el-table-column label="上移/下移" width="140">
+        <el-table-column label="上移/下移" width="140" align="left">
           <template #default="{ row, $index }">
-            <el-button link type="primary" :disabled="$index === 0" @click="moveUp($index)">上移</el-button>
-            <el-button link type="primary" :disabled="$index === menuItems.length - 1" @click="moveDown($index)">下移</el-button>
+            <span class="op-cell">
+              <el-button link type="primary" :disabled="$index === 0" @click="moveUp($index)">上移</el-button>
+              <el-button link type="primary" :disabled="$index === menuItems.length - 1" @click="moveDown($index)">下移</el-button>
+            </span>
           </template>
         </el-table-column>
       </el-table>
@@ -89,5 +91,9 @@ onMounted(load)
   color: #606266;
   font-size: 14px;
   margin-bottom: 16px;
+}
+
+.menu-table .op-cell {
+  white-space: nowrap;
 }
 </style>

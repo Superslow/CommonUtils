@@ -83,19 +83,21 @@ def execute_kafka(task_data, batch_no):
         'bootstrap_servers': bootstrap_servers.split(','),
         'value_serializer': lambda v: json.dumps(v).encode('utf-8') if isinstance(v, dict) else str(v).encode('utf-8')
     }
-    security_protocol = config.get('security_protocol', 'PLAINTEXT')
+    security_protocol = (config.get('security_protocol') or 'PLAINTEXT').upper()
     producer_config['security_protocol'] = security_protocol
 
-    if config.get('username') and config.get('password'):
-        producer_config['sasl_mechanism'] = config.get('sasl_mechanism', 'PLAIN')
+    if security_protocol in ('SASL_PLAINTEXT', 'SASL_SSL') and config.get('username') and config.get('password'):
+        producer_config['sasl_mechanism'] = config.get('sasl_mechanism') or 'PLAIN'
         producer_config['sasl_plain_username'] = config['username']
         producer_config['sasl_plain_password'] = config['password']
 
-    if config.get('ssl_cafile'):
+    if security_protocol in ('SSL', 'SASL_SSL') and config.get('ssl_cafile'):
         producer_config['ssl_cafile'] = config['ssl_cafile']
-    # 仅 CA 证书即可验证服务端；若需双向认证再扩展 ssl_certfile/ssl_keyfile
 
-    producer = KafkaProducer(**producer_config)
+    try:
+        producer = KafkaProducer(**producer_config)
+    except Exception as e:
+        raise RuntimeError(f'Kafka 连接失败: {e}') from e
     sent_count = 0
     try:
         for msg in messages:

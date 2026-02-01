@@ -1,26 +1,27 @@
 <template>
   <el-container>
-    <el-alert
-      v-if="announcement && announcement.content"
-      type="info"
-      :title="announcement.content"
-      :closable="false"
-      class="app-announcement"
-      show-icon
-    />
     <el-header class="app-header">
       <h1 class="title">通用工具类集合</h1>
+      <div v-if="announcement && announcement.content" class="announcement-wrap" ref="announcementWrapRef">
+        <el-icon class="announcement-icon"><BellFilled /></el-icon>
+        <div class="announcement-marquee-wrap" ref="marqueeWrapRef">
+          <div class="announcement-inner" :class="{ 'is-scroll': needMarquee }">
+            <span class="announcement-text">{{ announcement.content }}</span>
+            <span v-if="needMarquee" class="announcement-text announcement-text-dup">{{ announcement.content }}</span>
+          </div>
+        </div>
+      </div>
       <div class="header-right">
         <template v-if="authUser">
           <el-dropdown trigger="click" @command="handleUserCommand">
             <span class="header-user-dropdown">
               {{ authUser.username }}
-              <el-tag v-if="authUser.is_admin" type="danger" size="small">管理员</el-tag>
+              <el-tag v-if="authUser.is_admin" class="admin-vip-tag" size="small">VIP 管理员</el-tag>
               <el-icon class="el-icon--right"><arrow-down /></el-icon>
             </span>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item command="change-password">修改密码</el-dropdown-item>
+                <el-dropdown-item command="user-info">修改用户信息</el-dropdown-item>
                 <el-dropdown-item v-if="authUser.is_admin" command="user-management">用户管理</el-dropdown-item>
                 <el-dropdown-item v-if="authUser.is_admin" command="menu-management">菜单管理</el-dropdown-item>
                 <el-dropdown-item v-if="authUser.is_admin" command="announcement">发布公告</el-dropdown-item>
@@ -32,27 +33,30 @@
         <el-button v-else type="primary" link @click="goLogin">登录</el-button>
       </div>
 
-    <!-- 修改密码弹窗 -->
-    <el-dialog v-model="passwordDialogVisible" title="修改密码" width="400px" @close="resetPasswordForm">
-      <el-form :model="passwordForm" label-width="90px">
-        <el-form-item label="原密码" required>
-          <el-input v-model="passwordForm.old_password" type="password" placeholder="原密码" show-password />
+    <!-- 修改用户信息弹窗 -->
+    <el-dialog v-model="userInfoDialogVisible" title="修改用户信息" width="420px" :close-on-click-modal="false" @close="resetUserInfoForm">
+      <el-form :model="userInfoForm" label-width="100px">
+        <el-form-item label="用户名" required>
+          <el-input v-model="userInfoForm.username" placeholder="至少 2 个字符" maxlength="64" show-word-limit />
         </el-form-item>
-        <el-form-item label="新密码" required>
-          <el-input v-model="passwordForm.new_password" type="password" placeholder="至少 6 位" show-password />
+        <el-form-item label="当前密码" required>
+          <el-input v-model="userInfoForm.password" type="password" placeholder="用于验证身份" show-password />
         </el-form-item>
-        <el-form-item label="确认新密码" required>
-          <el-input v-model="passwordForm.confirm_password" type="password" placeholder="再次输入新密码" show-password />
+        <el-form-item label="新密码">
+          <el-input v-model="userInfoForm.new_password" type="password" placeholder="留空则不修改密码，至少 6 位" show-password />
+        </el-form-item>
+        <el-form-item label="确认新密码">
+          <el-input v-model="userInfoForm.confirm_password" type="password" placeholder="与新密码一致" show-password />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="passwordDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="submitChangePassword">确定</el-button>
+        <el-button @click="userInfoDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitUserInfo">确定</el-button>
       </template>
     </el-dialog>
 
     <!-- 发布公告弹窗 -->
-    <el-dialog v-model="announcementDialogVisible" title="发布公告" width="560px" @close="announcementForm = ''">
+    <el-dialog v-model="announcementDialogVisible" title="发布公告" width="560px" :close-on-click-modal="false" @close="announcementForm = ''">
       <el-input v-model="announcementForm" type="textarea" :rows="6" placeholder="输入公告内容，留空可清空公告" />
       <template #footer>
         <el-button @click="announcementDialogVisible = false">取消</el-button>
@@ -78,18 +82,18 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowDown } from '@element-plus/icons-vue'
+import { ArrowDown, BellFilled } from '@element-plus/icons-vue'
 import api from './api'
 
 const route = useRoute()
 const router = useRouter()
 const activeMenu = computed(() => route.path || '/')
 const authUser = ref(null)
-const passwordDialogVisible = ref(false)
-const passwordForm = ref({ old_password: '', new_password: '', confirm_password: '' })
+const userInfoDialogVisible = ref(false)
+const userInfoForm = ref({ username: '', password: '', new_password: '', confirm_password: '' })
 const menuItems = ref([])
 const announcement = ref(null)
 const announcementDialogVisible = ref(false)
@@ -175,7 +179,7 @@ function loadMenu() {
 }
 
 function loadAnnouncement() {
-  api.get('/site/announcement').then(r => {
+  return api.get('/site/announcement').then(r => {
     if (r.success && r.data) announcement.value = r.data
     else announcement.value = null
   }).catch(() => { announcement.value = null })
@@ -195,30 +199,41 @@ function submitAnnouncement() {
     .catch(e => ElMessage.error(e.response?.data?.error || e.message || '发布失败'))
 }
 
-function resetPasswordForm() {
-  passwordForm.value = { old_password: '', new_password: '', confirm_password: '' }
+function resetUserInfoForm() {
+  userInfoForm.value = { username: '', password: '', new_password: '', confirm_password: '' }
 }
 
-function submitChangePassword() {
-  const { old_password, new_password, confirm_password } = passwordForm.value
-  if (!old_password || !new_password) {
-    ElMessage.warning('请填写原密码和新密码')
+function submitUserInfo() {
+  const { username, password, new_password, confirm_password } = userInfoForm.value
+  const un = (username || '').trim()
+  if (!password) {
+    ElMessage.warning('请填写当前密码以验证身份')
     return
   }
-  if (new_password.length < 6) {
+  if (!un && !new_password) {
+    ElMessage.warning('请填写新用户名和/或新密码')
+    return
+  }
+  if (un && un.length < 2) {
+    ElMessage.warning('用户名至少 2 个字符')
+    return
+  }
+  if (new_password && new_password.length < 6) {
     ElMessage.warning('新密码至少 6 位')
     return
   }
-  if (new_password !== confirm_password) {
+  if (new_password && new_password !== confirm_password) {
     ElMessage.warning('两次输入的新密码不一致')
     return
   }
-  api.post('/auth/change-password', { old_password, new_password })
+  const body = { password, username: un || undefined, new_password: new_password || undefined }
+  api.put('/auth/me', body)
     .then(r => {
       if (r.success) {
-        ElMessage.success('密码已修改')
-        passwordDialogVisible.value = false
-        resetPasswordForm()
+        ElMessage.success('用户信息已更新')
+        userInfoDialogVisible.value = false
+        resetUserInfoForm()
+        loadAuthUser()
       } else {
         ElMessage.error(r.error || '修改失败')
       }
@@ -229,12 +244,15 @@ function submitChangePassword() {
 onMounted(() => {
   loadAuthUser()
   loadMenu()
-  loadAnnouncement()
+  loadAnnouncement().then(() => nextTick(checkMarquee))
   window.addEventListener('site-menu-updated', loadMenu)
+  window.addEventListener('resize', checkMarquee)
 })
 onUnmounted(() => {
   window.removeEventListener('site-menu-updated', loadMenu)
+  window.removeEventListener('resize', checkMarquee)
 })
+watch(announcement, () => nextTick(checkMarquee), { deep: true })
 watch(() => route.path, loadAuthUser)
 </script>
 
@@ -255,13 +273,17 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: nowrap;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   padding: 0 20px;
+  min-width: 0;
 }
 
 .app-header .title {
   font-size: 24px;
   font-weight: 500;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .header-right {
@@ -270,9 +292,19 @@ body {
   gap: 10px;
 }
 
-.header-right .el-button,
-.header-right .el-tag {
+.header-right .el-button {
   color: rgba(255, 255, 255, 0.95);
+}
+
+/* 金色 VIP 管理员标识 */
+.admin-vip-tag {
+  background: linear-gradient(135deg, #d4af37 0%, #f4e4a6 50%, #c9a227 100%) !important;
+  border: 1px solid rgba(255, 215, 0, 0.6) !important;
+  color: #2c1810 !important;
+  font-weight: 600;
+}
+.header-right .admin-vip-tag {
+  color: #2c1810 !important;
 }
 
 .header-user-dropdown {
@@ -291,19 +323,66 @@ body {
   border-bottom: 1px solid #e6e6e6;
   padding: 0 24px;
   flex-shrink: 0;
+  flex-wrap: nowrap;
+  overflow-x: auto;
 }
 
 .app-menu .el-menu-item {
   font-size: 14px;
 }
 
-.app-announcement {
-  border-radius: 0;
-  margin: 0;
+/* 公告：标题与账号之间，喇叭图标 + 长文滚动 */
+.announcement-wrap {
+  flex: 1;
+  min-width: 0;
+  max-width: 60%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 20px;
+  color: rgba(255, 255, 255, 0.95);
+  font-size: 14px;
+}
+.announcement-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+  animation: announcement-bell 2s ease-in-out infinite;
+}
+@keyframes announcement-bell {
+  0%, 100% { transform: scale(1) rotate(0deg); }
+  15% { transform: scale(1.1) rotate(-8deg); }
+  30% { transform: scale(1.1) rotate(8deg); }
+  45% { transform: scale(1.1) rotate(-6deg); }
+  60% { transform: scale(1.1) rotate(6deg); }
+  75% { transform: scale(1.05) rotate(-2deg); }
+}
+.announcement-marquee-wrap {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.announcement-inner {
+  display: inline-block;
+  white-space: nowrap;
+}
+.announcement-inner.is-scroll {
+  display: inline-flex;
+  animation: announcement-marquee 25s linear infinite;
+}
+.announcement-inner.is-scroll .announcement-text {
+  flex-shrink: 0;
+  padding-right: 3em;
+}
+.announcement-text-dup {
+  padding-right: 3em;
+}
+@keyframes announcement-marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
 }
 
 .app-main {
-  padding: 28px 48px;
+  padding: 28px 80px;
   max-width: 1800px;
   margin: 0 auto;
   min-height: calc(100vh - 120px);
