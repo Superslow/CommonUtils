@@ -64,6 +64,18 @@ CREATE TABLE IF NOT EXISTS data_tasks (
 DROP TRIGGER IF EXISTS data_tasks_before_update;
 CREATE TRIGGER data_tasks_before_update BEFORE UPDATE ON data_tasks FOR EACH ROW SET NEW.updated_at = NOW();
 
+-- 站点配置（菜单、公告等，key-value）
+CREATE TABLE IF NOT EXISTS site_config (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    config_key VARCHAR(64) NOT NULL UNIQUE COMMENT '配置键',
+    config_value TEXT COMMENT '配置值(JSON)',
+    updated_at DATETIME NULL DEFAULT NULL,
+    INDEX idx_config_key (config_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
+DROP TRIGGER IF EXISTS site_config_before_update;
+CREATE TRIGGER site_config_before_update BEFORE UPDATE ON site_config FOR EACH ROW SET NEW.updated_at = NOW();
+
 -- 任务执行记录表
 CREATE TABLE IF NOT EXISTS task_executions (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,

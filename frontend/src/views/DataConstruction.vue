@@ -176,8 +176,8 @@
           <el-button type="primary" link @click="parseTemplateParams">识别可变参数</el-button>
         </el-form-item>
         <el-form-item v-if="templateParams.length" label="参数配置">
-          <div v-for="p in paramConfigList" :key="p.param" style="display:flex;align-items:center;margin-bottom:8px">
-            <span style="width:100px">{{ p.param }}</span>
+          <div v-for="p in paramConfigList" :key="p.param" class="param-row">
+            <span class="param-name">{{ p.param }}</span>
             <el-select v-model="p.type" placeholder="类型" style="width:160px">
               <el-option label="固定内容" value="fixed" />
               <el-option label="当前时间" value="current_time" />
@@ -186,7 +186,16 @@
               <el-option label="轮询" value="round_robin" />
               <el-option label="批次号" value="batch" />
             </el-select>
-            <el-input v-model="p.value" placeholder="值(轮询用逗号分隔)" style="margin-left:8px;flex:1" />
+            <el-input
+              v-model="p.value"
+              :placeholder="paramPlaceholder(p.type)"
+              :disabled="paramValueDisabled(p.type)"
+              style="margin-left:8px;flex:1"
+            />
+            <span class="param-hint">{{ paramHint(p.type) }}</span>
+          </div>
+          <div class="param-doc">
+            固定内容：填什么渲染什么。当前时间：可填 strftime 格式（如 %Y-%m-%d %H:%M:%S），留空默认。轮询：不填为本批内序号 1～每批条数；填逗号分隔值则按条轮询。批次号：任务第 N 次执行的整数。
           </div>
         </el-form-item>
       </el-form>
@@ -381,6 +390,28 @@ async function uploadCert(file, fieldName) {
   return false
 }
 
+function paramPlaceholder(type) {
+  const t = type || 'fixed'
+  if (t === 'fixed') return '填写什么即渲染什么'
+  if (t === 'current_time') return '如 %Y-%m-%d %H:%M:%S，留空用默认 yyyy-MM-dd HH:mm:ss'
+  if (t === 'round_robin') return '可选：逗号分隔多值轮询；不填则为 1～本批条数'
+  if (t === 'timestamp_13' || t === 'timestamp_10' || t === 'batch') return '无需填值'
+  return '值'
+}
+
+function paramValueDisabled(type) {
+  return type === 'timestamp_13' || type === 'timestamp_10' || type === 'batch'
+}
+
+function paramHint(type) {
+  const t = type || 'fixed'
+  if (t === 'timestamp_13') return '（13 位毫秒）'
+  if (t === 'timestamp_10') return '（10 位秒）'
+  if (t === 'batch') return '（第 N 次执行）'
+  if (t === 'round_robin') return '（本批内序号或轮询值）'
+  return ''
+}
+
 function parseTemplateParams() {
   api.post('/template/params', { template: taskForm.value.template_content }).then(r => {
     if (r.success && r.data.length) {
@@ -461,5 +492,28 @@ function showExecutions(row) {
   margin-left: 12px;
   font-size: 12px;
   color: #909399;
+}
+
+.param-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.param-row .param-name {
+  width: 100px;
+  flex-shrink: 0;
+}
+.param-row .param-hint {
+  margin-left: 8px;
+  font-size: 12px;
+  color: #909399;
+  flex-shrink: 0;
+}
+.param-doc {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.5;
 }
 </style>
