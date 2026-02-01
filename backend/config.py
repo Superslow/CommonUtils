@@ -1,18 +1,30 @@
 """
 应用配置
+Windows 下系统环境变量常不生效，优先从 .env 或 config_local.py 读取。
 """
 import os
+import sys
 import socket
+from pathlib import Path
+
+# 1) 优先加载 .env 到 os.environ（Windows 下最可靠：在 backend 目录建 .env 写 MYSQL_PASSWORD=xxx）
+_CONFIG_DIR = Path(__file__).resolve().parent
+try:
+    from dotenv import load_dotenv
+    _env_path = _CONFIG_DIR / '.env'
+    load_dotenv(_env_path)
+except ImportError:
+    pass
 
 
 def _env_str(key, default=''):
     """从环境变量读取字符串，兼容 Windows：去除首尾空格、\\r\\n 等换行符。"""
-    val = os.getenv(key)
+    val = os.environ.get(key)  # 与 getenv 等价，确保读到 dotenv 注入的值
     if val is None:
         return default
     if not isinstance(val, str):
-        return default
-    # 去除 Windows 换行符和首尾空格，避免 .env 或 set 带入的 \\r\\n 导致密码错误
+        return str(val).strip()
+    # 去除 Windows 换行符和首尾空格
     return val.replace('\r', '').replace('\n', '').strip() or default
 
 
@@ -76,3 +88,26 @@ ADMIN_PASSWORD = _env_str('ADMIN_PASSWORD', 'admin123')
 # JWT 密钥（生产环境务必设置环境变量）
 JWT_SECRET = _env_str('JWT_SECRET', 'common-utils-jwt-secret-change-in-production')
 JWT_EXPIRE_DAYS = _env_int('JWT_EXPIRE_DAYS', 7)
+
+# 2) 可选：config_local.py 覆盖（Windows 下环境变量仍不生效时，在 backend 下建 config_local.py 写 MYSQL_PASSWORD='xxx'）
+_local_py = _CONFIG_DIR / 'config_local.py'
+if _local_py.exists():
+    try:
+        import importlib.util
+        _spec = importlib.util.spec_from_file_location('config_local', _local_py)
+        if _spec and _spec.loader:
+            _local = importlib.util.module_from_spec(_spec)
+            _spec.loader.exec_module(_local)
+            for _name in (
+                'MYSQL_HOST', 'MYSQL_PORT', 'MYSQL_USER', 'MYSQL_PASSWORD', 'MYSQL_DATABASE',
+                'HOST', 'PORT', 'DEBUG', 'ADMIN_USERNAME', 'ADMIN_PASSWORD', 'JWT_SECRET', 'JWT_EXPIRE_DAYS',
+                'CLIENT_IP_HEADER',
+            ):
+                if hasattr(_local, _name):
+                    _v = getattr(_local, _name)
+                    if _name in ('MYSQL_PORT', 'PORT', 'JWT_EXPIRE_DAYS'):
+                        globals()[_name] = int(_v) if _v is not None else globals()[_name]
+                    elif _v is not None:
+                        globals()[_name] = _v
+    except Exception:
+        pass
