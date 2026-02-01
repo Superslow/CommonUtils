@@ -4,7 +4,10 @@
       <template #header>
         <span>用户管理</span>
       </template>
-      <el-table :data="users" border style="width: 100%;">
+      <div class="toolbar-row">
+        <el-button @click="loadUsers">刷新</el-button>
+      </div>
+      <el-table :data="users" border style="width: 100%; margin-top: 12px;">
         <el-table-column prop="id" label="ID" width="80" />
         <el-table-column prop="username" label="用户名" width="160" />
         <el-table-column label="管理员" width="160" class-name="admin-col">
@@ -74,5 +77,11 @@ onMounted(loadUsers)
   margin-left: 8px;
   font-size: 12px;
   color: #909399;
+}
+
+.toolbar-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 0;
 }
 </style>

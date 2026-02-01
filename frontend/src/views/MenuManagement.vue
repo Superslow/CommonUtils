@@ -5,7 +5,10 @@
         <span>菜单管理</span>
       </template>
       <p class="desc">调整菜单顺序与是否在顶栏显示。拖拽行可调整顺序。</p>
-      <el-table :data="menuItems" border row-key="path" class="menu-table" style="width: 100%">
+      <div class="toolbar-row">
+        <el-button @click="load">刷新</el-button>
+      </div>
+      <el-table :data="menuItems" border row-key="path" class="menu-table" style="width: 100%; margin-top: 12px;">
         <el-table-column type="index" label="序号" width="60" />
         <el-table-column prop="label" label="名称" width="140" />
         <el-table-column prop="path" label="路径" width="180" />
@@ -95,5 +98,11 @@ onMounted(load)
 
 .menu-table .op-cell {
   white-space: nowrap;
+}
+
+.toolbar-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 8px;
 }
 </style>
