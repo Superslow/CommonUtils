@@ -57,7 +57,7 @@
 CommonUtils/
 ├── backend/              # Python 后端
 │   ├── app.py           # Flask 主应用（含任务调度）
-│   ├── config.py        # 配置（MySQL、Flask、管理员 IP）
+│   ├── config.py        # 配置（MySQL、Flask、可选管理员 IP 等）
 │   ├── agent_client.py  # Agent 客户端（含连接缓存）
 │   ├── template_utils.py # 模板参数渲染
 │   ├── database/       # MySQL 表结构与连接
@@ -105,13 +105,13 @@ cd backend
 pip install -r requirements.txt
 ```
 
-2. （可选）配置监听地址与端口、**客户端 IP 来源**（多机访问时必看）：
+2. （可选）配置监听地址与端口、**客户端 IP 来源**（使用反向代理时建议设置）：
    - **环境变量**：
      ```bash
      export FLASK_HOST=0.0.0.0
      export FLASK_PORT=5000
      export FLASK_DEBUG=true
-     # 若前端通过反向代理（如 nginx）访问后端，必须设置真实客户端 IP 头，否则所有人会被当成同一 IP，权限错误
+     # 反向代理场景下设置，便于审计（创建者 IP）及可选的管理员 IP 白名单正确识别客户端
      export CLIENT_IP_HEADER=X-Forwarded-For
      ```
    - 在 nginx 中需设置：`proxy_set_header X-Forwarded-For $remote_addr;`
@@ -195,8 +195,9 @@ npm run dev
 
 ### 6. 部署与多机访问说明
 
-- **反向代理（如 nginx）**：若前端通过 nginx 访问后端，必须让后端拿到真实客户端 IP，否则所有人会被当成同一 IP，权限判断错误。在 nginx 中设置 `proxy_set_header X-Forwarded-For $remote_addr;`，并在后端配置 `CLIENT_IP_HEADER=X-Forwarded-For`（环境变量或 `backend/config.py`）。
-- **管理员**：第一个注册用户需在数据库中手动设为管理员（`users.is_admin = 1`），或使用预留管理员账号（若在配置中设置了 `ADMIN_USERNAME`/`ADMIN_PASSWORD`，可用该账号登录后拥有管理员权限）。部署机器 IP 也可在配置中设为管理员 IP（`ADMIN_IPS`）作为兜底。
+- **用户与权限**：鉴权已改为用户登录（JWT），**不再用 IP 做权限判断**。普通用户仅能操作自己创建的 Agent/任务，管理员可管理全部（见下方）。
+- **反向代理（如 nginx）**：若通过 nginx 访问后端，建议设置 `CLIENT_IP_HEADER=X-Forwarded-For`（环境变量或 `backend/config.py`），并在 nginx 中配置 `proxy_set_header X-Forwarded-For $remote_addr;`，便于审计（创建者 IP 记录）及可选的管理员 IP 白名单正确识别客户端。
+- **管理员**：将第一个注册用户在数据库中设为管理员（`users.is_admin = 1`），或使用预留管理员账号（配置 `ADMIN_USERNAME`/`ADMIN_PASSWORD` 后登录即拥有管理员权限）。可选：在配置或数据库 `admin_ips` 表中配置管理员 IP，来自该 IP 的请求也可拥有管理员权限（用于部署/审计兜底）。
 
 ## API接口
 
@@ -215,7 +216,7 @@ npm run dev
 
 ### IP检查
 - `POST /api/ip/check` - 检查IP地址和网段关系
-- `GET /api/ip/current` - 获取当前请求的客户端 IP（用于前端展示「当前访问IP」）
+- `GET /api/ip/current` - 获取当前请求的客户端 IP（用于审计或调试）
 
 ### Cron解析
 - `POST /api/cron/parse` - 解析Cron表达式
